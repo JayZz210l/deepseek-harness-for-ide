@@ -109,7 +109,7 @@ dependencies and bundles the DSH runtime from the local npx cache — run
 `npx @deepseek-ai/dsh` once so a fresh DSH installation exists.
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-<version>.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.5.zip
 .\gradlew.bat runIde           # run a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # platform verification before publishing
 ```

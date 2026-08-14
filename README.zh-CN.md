@@ -97,7 +97,7 @@ IDE 侧边栏。装上插件、配置一次 API Key，即可直接在 IDE 里对
 DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装。
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-<version>.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.5.zip
 .\gradlew.bat runIde           # 带插件的沙箱 IDE 调试
 .\gradlew.bat verifyPlugin     # 上架前的平台验证
 ```
