@@ -7,6 +7,8 @@
 工具调用审批、文件 Diff、目标与计划、子智能体、Workflow、Cordis 工具面板等）内嵌到
 IDE 侧边栏。装上插件、配置一次 API Key，即可直接在 IDE 里对话。
 
+![Deepseek Harness For IDE 在 IDE 中的运行截图](docs/images/DSH-FOR-IDE.png)
+
 [English](README.md) · License: [MIT](LICENSE)
 
 ## 功能特性

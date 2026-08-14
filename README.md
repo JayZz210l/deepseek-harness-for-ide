@@ -6,6 +6,8 @@ The plugin hosts a local `dsh web` server and embeds the full Harness Web UI —
 session management, tool approvals, file diffs, goals & plans, subagents, workflows, and the
 Cordis tool panels — in the IDE tool window. Install, configure the API key once, chat.
 
+![Deepseek Harness For IDE running inside the IDE](docs/images/DSH-FOR-IDE.png)
+
 [中文说明](README.zh-CN.md) · License: [MIT](LICENSE)
 
 ## Features
