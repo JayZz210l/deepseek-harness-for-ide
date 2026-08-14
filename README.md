@@ -50,13 +50,25 @@ Cordis tool panels — in the IDE tool window. Install, configure the API key on
 
 ## Installation
 
-1. Download `deepseek-harness-jetbrains-<version>.zip` from
-   [Releases](https://github.com/JayZz210l/deepseek-harness-for-ide/releases)
-   (or install from the JetBrains Marketplace).
-2. In the IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…** and pick the zip.
-3. Open a project — the plugin starts the local service automatically and opens the
-   **Deepseek Harness For IDE** tool window on the right.
-4. The workspace defaults to your project directory. Just chat.
+### From disk (zip)
+
+1. Download `deepseek-harness-jetbrains-<version>.zip` from the
+   [Releases](https://github.com/JayZz210l/deepseek-harness-for-ide/releases) page
+   (or build it yourself — see [Building from source](#building-from-source)).
+2. Open your IDE and go to **Settings → Plugins** (Ctrl+Alt+S, or File → Settings).
+3. Click the **⚙ gear** icon next to "Marketplace" and choose **Install Plugin from Disk…**.
+4. Select the downloaded zip and click **OK**.
+5. Restart the IDE when prompted.
+6. Open any project — the **Deepseek Harness For IDE** tool window appears on the right
+   and the local service starts automatically.
+
+**Upgrading:** install the newer zip the same way — it replaces the previous version while
+keeping your per-project conversations and settings.
+
+### From the JetBrains Marketplace
+
+Search for **Deepseek Harness For IDE** under **Settings → Plugins → Marketplace** and
+install it. Marketplace releases follow the same version numbers.
 
 ## Usage
 
