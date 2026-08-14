@@ -5,18 +5,22 @@
     <version>0.1.4</version>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
-    <description><![CDATA[DeepSeek Harness for JetBrains IDEs: run and chat with DeepSeek Harness inside your IDE.
-      <p>在 IDE 侧边栏中使用 DeepSeek Harness：插件托管本地 <code>dsh web</code> 服务，
-      并把完整的 Harness Web 界面（智能体对话、会话管理、工具调用审批、文件 Diff、
-      目标与计划、子智能体、Cordis 工具面板等）嵌入侧边栏工具窗口。</p>
+    <description><![CDATA[Deepseek Harness For IDE: the full DeepSeek Harness inside your JetBrains IDE.
+      <p>在 IDE 侧边栏中使用完整 DeepSeek Harness：智能体对话、会话管理、工具调用审批、
+      文件 Diff、目标与计划、子智能体、Workflow、Cordis 工具面板，全部内嵌于工具窗口。
+      The full DeepSeek Harness — agent chat, session management, tool approvals, diffs,
+      goals &amp; plans, subagents, workflows and Cordis panels — embedded in the tool window.</p>
       <ul>
-        <li>一键启动 / 停止 / 重启本地 DeepSeek Harness 服务（默认自动分配端口，避免冲突）</li>
-        <li>自动捕获服务地址并内嵌加载，启动状态实时可见</li>
-        <li>支持打开项目时自动启动、进程意外退出时自动恢复（可在设置中配置）</li>
-        <li>内置日志面板，方便排查启动问题；可一键在外部浏览器打开或复制地址</li>
-        <li>支持自定义 dsh 命令、绑定地址、端口与 DSH_HOME 覆盖</li>
+        <li>免装 dsh：运行时已内置；Node.js 缺失时弹窗一键引导下载（Bundled DSH runtime; Node.js download guide when missing）</li>
+        <li>工作区 = IDE 项目，重开自动回到历史会话（Workspace defaults to the IDE project, reopens on your history）</li>
+        <li>文件跳转到 IDE + IDE 原生 Diff（Open files in the IDE, native diff against the VCS baseline）</li>
+        <li>编辑器选区右键直发提问（Send selection to DSH from the editor）</li>
+        <li>每项目隔离数据、单向继承凭据，绝不影响外部 dsh web（Per-project isolated data, one-way credential inheritance）</li>
+        <li>启动环境检查、每版本一次的更新公告、内置反馈入口（Startup checks, once-per-version update notice, built-in feedback）</li>
+        <li>中英双语界面（Bilingual UI: English / 简体中文）</li>
       </ul>
-      <p>无需安装 dsh（已内置）；需要 Node.js 18+，缺失时插件会弹窗引导下载。</p>
+      <p>需要 Node.js 18+（缺失时插件会引导下载）；当前构建面向 Windows x64。
+      Requires Node.js 18+ (guided download when missing); currently built for Windows x64.</p>
     ]]></description>
 
     <change-notes><![CDATA[
