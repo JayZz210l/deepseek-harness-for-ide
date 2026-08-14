@@ -1,0 +1,14 @@
+{
+  "name": "dsh-ide-settings",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": { "default": "./index.js" },
+    "./client": { "default": "./client.js" },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": { "platform": "web" }
+  }
+}

@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.4</version>
+    <version>0.1.5</version>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
     <description><![CDATA[Deepseek Harness For IDE: the full DeepSeek Harness inside your JetBrains IDE.
@@ -24,6 +24,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.5 — DSH 设置页新增「For IDE」栏目（插件信息与反馈链接，经组合层客户端包注入）；反馈按钮地址修正为 GitHub Issues（此前版本构建早于地址修改）。</p>
       <p>0.1.4 — 设置页新增「插件信息」与 BUG 反馈按钮（支持一键复制诊断信息）；侧边栏工具栏新增反馈入口。</p>
       <p>0.1.3 — 不再内置 Node.js（体积回到 52MB）；启动时检测环境：缺 Node.js 弹窗一键跳转 nodejs.org 下载；环境检查完成后弹出更新公告（显示更新日期与内容，每版本仅一次）。</p>
       <p>0.1.2 — 内置 Node.js 运行时：不再要求本机安装 Node.js（PATH 中的 node 优先，否则使用插件内置的可执行文件）。</p>

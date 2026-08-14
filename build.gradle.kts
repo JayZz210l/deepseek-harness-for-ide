@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.4"
+version = "0.1.5"
 
 repositories {
     mavenCentral()
@@ -136,6 +136,22 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             val version = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
                 .find(manifestText)?.groupValues?.get(1) ?: "unknown"
             destinationDir.resolve("dsh-runtime/version.txt").writeText("$version\n")
+
+            // Client settings package: the "For IDE" section in the web UI settings page.
+            // Shipped as a real package under the runtime's node_modules (the client-module
+            // scanner resolves the composition row name against the profile, and the plugin
+            // junctions it into the profile's node_modules at startup).
+            val pkgDir = destinationDir.resolve("dsh-runtime/node_modules/dsh-ide-settings")
+            pkgDir.mkdirs()
+            val resBase = project.file("src/main/resources/dsh/ide-settings")
+            File(resBase, "package.json").copyTo(File(pkgDir, "package.json"), overwrite = true)
+            File(resBase, "index.js").copyTo(File(pkgDir, "index.js"), overwrite = true)
+            val clientJs = File(resBase, "client.js").readText()
+                .replace("__PLUGIN_VERSION__", project.version.toString())
+                .replace("__BUILD_DATE__", LocalDate.now().toString())
+                .replace("__FEEDBACK_URL__", "https://github.com/JayZz210l/deepseek-harness-for-ide/issues")
+                .replace("__GITHUB_URL__", "https://github.com/JayZz210l/deepseek-harness-for-ide")
+            File(pkgDir, "client.js").writeText(clientJs)
         }
     }
 }

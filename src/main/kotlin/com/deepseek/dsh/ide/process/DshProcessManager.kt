@@ -167,10 +167,18 @@ class DshProcessManager(private val project: Project) : Disposable {
 
         // ── Native (composition patch) preparation ────────────────────────────────────────────────
         var nativeActive = false
+        var includeSettingsRow = false
         val finalTokens = baseTokens.toMutableList()
         if (mode == "auto") {
             val implRoot = implRootFromTokens(baseTokens) ?: findNpxCachedBinJs()?.let(::implRootOf)
-            val patchFile = if (implRoot != null) DshNativeSupport.writeBridgeFiles() else null
+            // The "For IDE" settings-page row is shipped inside the BUNDLED runtime's
+            // node_modules; it is only added to the patch when the bundled runtime is the
+            // one being launched (an external npx-cache install has no such package).
+            val bundledRoot = DshBundledRuntime.installRoot()?.toString()
+            includeSettingsRow = implRoot != null && bundledRoot != null && runCatching {
+                File(implRoot).canonicalPath.equals(File(bundledRoot).canonicalPath, ignoreCase = SystemInfo.isWindows)
+            }.getOrDefault(false)
+            val patchFile = if (implRoot != null) DshNativeSupport.writeBridgeFiles(includeSettingsRow) else null
             if (implRoot != null && patchFile != null) {
                 val bridge = DshIdeBridge { path -> openPathInIde(path) }
                 runCatching { bridge.start() }
@@ -207,9 +215,17 @@ class DshProcessManager(private val project: Project) : Disposable {
         }
         if (nativeActive) {
             val bridge = ideBridge ?: return
-            pb.environment()["DSH_IDE_BRIDGE_IMPL"] = implRootFromTokens(baseTokens) ?: findNpxCachedBinJs()?.let(::implRootOf) ?: ""
+            val implRootEnv = implRootFromTokens(baseTokens) ?: findNpxCachedBinJs()?.let(::implRootOf) ?: ""
+            pb.environment()["DSH_IDE_BRIDGE_IMPL"] = implRootEnv
             pb.environment()["DSH_IDE_BRIDGE_URL"] = bridge.baseUrl
             pb.environment()["DSH_IDE_BRIDGE_TOKEN"] = bridge.token
+            // Link the "For IDE" settings package into the DSH profile's node_modules
+            // before boot: the client-module scanner resolves row names against the
+            // profile directory, so the junction must exist when dsh starts.
+            if (includeSettingsRow && implRootEnv.isNotEmpty()) {
+                val linkHome = dshHome ?: DshHomePolicy.mainHome().toString()
+                DshNativeSupport.ensureClientSettingsLink(implRootEnv, linkHome, ::addLog)
+            }
         }
 
         addLog(DshBundle.message("dsh.proc.logStarted", finalTokens.joinToString(" ")))
