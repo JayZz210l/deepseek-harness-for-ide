@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.6"
+version = "0.1.7"
 
 repositories {
     mavenCentral()
@@ -67,8 +67,14 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            // Verify against the compile-time baseline; extend with more IDE versions before publishing.
+            // Support matrix the local environment can verify: the IDEA packages for
+            // 2025.3.6.1 / 2026.1.5 are not published to the reachable repositories
+            // (skipped on purpose); those generations are still covered by the
+            // JetBrains Marketplace-side verification.
             ide(IntelliJPlatformType.IntellijIdeaCommunity, "2024.3.5")
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2024.3.7.1")
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1.7.2")
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2.6.3")
         }
     }
 }

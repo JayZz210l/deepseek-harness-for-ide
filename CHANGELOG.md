@@ -2,6 +2,12 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.7
+
+- 兼容性修复：替换已废弃的 `ActionToolbar.updateActionsImmediately()`，改用平台推荐的
+  `updateActionsAsync()`（自 2024.1 起废弃）；插件验证器（1.409）在 2024.3.5 / 2024.3.7.1 /
+  2025.1.7.2 / 2025.2.6.3 全矩阵下全部判定 **Compatible**，不再报告废弃 API 使用。
+
 ## 0.1.6
 
 - 「For IDE」栏目的反馈入口从文字链接升级为**真正的按钮**（DSH primitives Button），

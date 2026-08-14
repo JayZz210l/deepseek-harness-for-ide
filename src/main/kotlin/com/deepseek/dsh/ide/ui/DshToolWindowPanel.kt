@@ -128,7 +128,11 @@ class DshToolWindowPanel(private val project: Project) {
             }
         }
         statsPanel.refresh()
-        toolbar.updateActionsImmediately()
+        // updateActionsImmediately() is deprecated since 2024.1; the platform's own
+        // Javadoc points at updateActionsAsync() as the replacement (safe here: the
+        // status message bus always delivers on the EDT, and updateActionsAsync()
+        // requires the EDT).
+        toolbar.updateActionsAsync()
     }
 
     private fun showBrowser(status: DshServerStatus) {
