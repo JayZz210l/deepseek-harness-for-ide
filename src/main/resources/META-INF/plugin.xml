@@ -3,6 +3,7 @@
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
     <version>0.1.7</version>
+    <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
     <description><![CDATA[Deepseek Harness For IDE: the full DeepSeek Harness inside your JetBrains IDE.
