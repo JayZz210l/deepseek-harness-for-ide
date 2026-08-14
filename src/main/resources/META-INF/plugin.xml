@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.7</version>
+    <version>0.1.8</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -25,6 +25,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.8 — 全新插件图标：插件图标与工具窗口图标更新为 DeepSeek 风格新设计，README 图标同步更新。</p>
       <p>0.1.7 — 兼容性修复：弃用已废弃的 ActionToolbar.updateActionsImmediately()，改用平台推荐的 updateActionsAsync()，插件验证器在 2024.3–2026.1 支持矩阵下不再报告废弃 API 使用。</p>
       <p>0.1.6 — For IDE 栏目的反馈入口升级为真正的按钮（点击经 host.openPath 在系统浏览器中打开 GitHub Issues）；插件打开链接支持 http/https 直开系统浏览器。</p>
       <p>0.1.5 — DSH 设置页新增「For IDE」栏目（插件信息与反馈链接，经组合层客户端包注入）；反馈按钮地址修正为 GitHub Issues（此前版本构建早于地址修改）。</p>

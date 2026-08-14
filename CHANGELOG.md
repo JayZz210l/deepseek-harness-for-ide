@@ -2,6 +2,11 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.8
+
+- 全新插件图标：插件图标（`pluginIcon.svg`）与工具窗口图标（`dshToolWindow.svg`）更新为
+  DeepSeek 风格新设计，README 图标（`plugin-icon.png`）同步更新。
+
 ## 0.1.7
 
 - 兼容性修复：替换已废弃的 `ActionToolbar.updateActionsImmediately()`，改用平台推荐的
