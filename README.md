@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/plugin-icon.png" width="96" alt="Deepseek Harness For IDE icon"/></p>
+
 # Deepseek Harness For IDE
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) inside your JetBrains IDE.

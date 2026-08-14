@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/plugin-icon.png" width="96" alt="Deepseek Harness For IDE 图标"/></p>
+
 # Deepseek Harness For IDE
 
 在 JetBrains 系 IDE（IntelliJ IDEA / PyCharm / WebStorm / GoLand / Rider 等）侧边栏中使用
