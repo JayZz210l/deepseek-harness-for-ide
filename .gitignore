@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+.intellijPlatform/
+build/
+out/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Bundled local gradle distribution (used for offline builds on the dev machine)
+tools/
+
+# Plugin verifier leftovers
+idea/
+verification-*/
+
+# Build artifacts
+*.zip
+*.jar
+
+# OS
+Thumbs.db
+.DS_Store
