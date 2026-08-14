@@ -1,49 +1,24 @@
-<p align="center"><img src="docs/images/plugin-icon.png" width="96" alt="Deepseek Harness For IDE 图标"/></p>
+<div align="center">
 
 # Deepseek Harness For IDE
 
-在 JetBrains 系 IDE（IntelliJ IDEA / PyCharm / WebStorm / GoLand / Rider 等）侧边栏中使用
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的插件。
+> 把完整的 DeepSeek Harness 搬进你的 JetBrains IDE
 
-插件托管本地 `dsh web` 服务，并把完整的 Harness Web 界面（智能体对话、会话管理、
-工具调用审批、文件 Diff、目标与计划、子智能体、Workflow、Cordis 工具面板等）内嵌到
-IDE 侧边栏。装上插件、配置一次 API Key，即可直接在 IDE 里对话。
+<img width="120" alt="Deepseek Harness For IDE 图标" src="./docs/images/plugin-icon.png" />
 
-![Deepseek Harness For IDE 在 IDE 中的运行截图](docs/images/DSH-FOR-IDE.png)
+[**English**](./README.md) · **简体中文**
 
-[English](README.md) · License: [MIT](LICENSE)
+![][github-stars-shield] ![][github-forks-shield] ![][github-issues-shield] ![][github-mit]
 
-## 功能特性
+</div>
 
-- **内嵌完整 DSH Web GUI**：基于 JCEF 加载官方 React 前端，DSH 升级即自动获得新功能；
-- **免装 dsh**：插件内置完整 DSH 运行时（整个 `node_modules` 依赖闭包）。仅要求
-  Node.js 18+，缺失时插件会检测并弹窗一键跳转 nodejs.org 下载；
-- **按项目隔离的数据目录**：每个项目独立 DSH home，启动时从 `~/.dsh` 单向继承凭据与
-  设置，绝不触碰外部浏览器中运行的 `dsh web`（DSH 当前版本多实例共用 home 不安全）；
-- **工作区 = IDE 项目**：页面加载前就把项目目录登记为工作区并置顶；重开工程时确定性
-  落在会话最多的那个工作区，历史对话不散落；
-- **文件跳转到 IDE**：界面里的"打开文件"直接落到 IDE 编辑器——DSH 组合层原生网关
-  （`dsh web --patch`）实现，启动失败自动回退 TCP 代理；
-- **IDE 原生 Diff**：文件有 VCS 改动时，打开的是 IDE 并排 Diff（对比 VCS 基线），
-  而不是普通编辑器；
-- **编辑器选区直发**：右键把选中代码（或当前行）作为消息发给 DSH，自动启动服务、
-  定位会话并唤起侧边栏；
-- **启动检查与更新公告**：API Key 预检（缺失弹窗引导）、Node.js 检测与下载引导、
-  每版本一次的更新公告（含更新日期与内容）；
-- **内置反馈入口**：侧边栏工具栏"反馈"按钮 + 设置页"插件信息"区（一键复制诊断信息）；
-- **日志与统计**：工具窗口底部 Log / Statistics 标签页（启动次数、异常退出、运行时长）；
-- **中英双语**：界面文案完整支持英文与简体中文。
+> DeepSeek Harness 是 DeepSeek 的智能体编程工作台——智能体对话、工具审批、目标与计划、
+> 子智能体、Workflow 与 Cordis 工具链。本插件把**完整**的 Harness 内嵌到 IDE 工具窗口：
+> 装上插件、配置一次 API Key，即可直接在 IDE 里对话。
 
-## 环境要求
+<img width="850" alt="Deepseek Harness For IDE 运行截图" src="./docs/images/DSH-FOR-IDE.png" />
 
-- JetBrains IDE **2024.3+**（`since 243 / until 261.*`，已实测 IntelliJ IDEA 2024.3 与
-  JetBrains Rider 2026.1）；
-- **Node.js 18+**（DSH 运行时已内置，Node 未内置——缺失时插件会引导下载）；
-- **DeepSeek API Key**：首次在终端跑一次 `npx @deepseek-ai/dsh web`，在 Models 页面保存
-  `DEEPSEEK_API_KEY`，插件启动时自动继承。
-
-> **平台说明**：内置 DSH 运行时含原生模块（node-pty、sharp 等），当前构建面向
-> **Windows x64**；其他平台上有 PATH 中的系统 `dsh` 时会优先使用它。
+---
 
 ## 安装
 
@@ -63,6 +38,55 @@ IDE 侧边栏。装上插件、配置一次 API Key，即可直接在 IDE 里对
 
 在 **Settings → Plugins → Marketplace** 搜索 **Deepseek Harness For IDE** 安装即可，
 版本号与 GitHub Releases 一致。
+
+---
+
+## 核心特性
+
+### 完整 Harness，原生内嵌
+- **内嵌完整 DSH Web 界面**——智能体对话、会话管理、工具审批、文件 Diff、目标与计划、
+  子智能体、Workflow、Cordis 工具面板，全部跑在工具窗口的 JCEF 浏览器里；DSH 升级自动
+  获得新界面能力；
+- **免装 dsh**——运行时（整个 `node_modules` 依赖闭包）内置在插件里。仅要求 Node.js 18+，
+  缺失时插件会检测并弹窗一键跳转 nodejs.org 下载。
+
+### IDE 深度集成
+- **工作区 = IDE 项目**——页面加载前就把项目目录登记为工作区并置顶；重开工程时确定性
+  落在会话最多的那个工作区，历史对话不散落；
+- **文件跳转到 IDE**——界面里的"打开文件"直接落到 IDE 编辑器（DSH 组合层原生网关实现，
+  启动失败自动回退 TCP 代理）；
+- **IDE 原生 Diff**——文件有 VCS 改动时，打开的是 IDE 并排 Diff（对比 VCS 基线），
+  而不是普通编辑器；
+- **编辑器选区直发**——右键把选中代码（或当前行）作为消息发给 DSH，自动启动服务、
+  定位会话并唤起侧边栏。
+
+### 数据安全与隔离
+- **每项目隔离数据**——每个项目独立 DSH home，启动时从 `~/.dsh` 单向继承凭据与设置，
+  绝不触碰外部浏览器中运行的 `dsh web`（DSH 当前版本多实例共用 home 不安全）；
+- **启动自检**——API Key 预检（缺失弹窗引导）、Node.js 检测与下载引导、每版本一次的
+  更新公告（含更新日期与内容）。
+
+### 开发者体验
+- **DSH 设置页内的「For IDE」栏目**——插件信息与反馈链接，经组合层客户端包注入
+  （真正的 DSH 客户端插件机制）；
+- **内置反馈入口**——侧边栏工具栏"反馈"按钮 + 设置页"插件信息"区（一键复制诊断信息）；
+- **日志与统计**——工具窗口底部 Log / Statistics 标签页（启动次数、异常退出、运行时长）；
+- **中英双语**——界面文案完整支持英文与简体中文。
+
+---
+
+## 环境要求
+
+- JetBrains IDE **2024.3+**（`since 243 / until 261.*`，已实测 IntelliJ IDEA 2024.3 与
+  JetBrains Rider 2026.1）；
+- **Node.js 18+**（DSH 运行时已内置，Node 未内置——缺失时插件会引导下载）；
+- **DeepSeek API Key**：首次在终端跑一次 `npx @deepseek-ai/dsh web`，在 Models 页面保存
+  `DEEPSEEK_API_KEY`，插件启动时自动继承。
+
+> **平台说明**：内置 DSH 运行时含原生模块（node-pty、sharp 等），当前构建面向
+> **Windows x64**；其他平台上有 PATH 中的系统 `dsh` 时会优先使用它。
+
+---
 
 ## 使用
 
@@ -91,7 +115,15 @@ IDE 侧边栏。装上插件、配置一次 API Key，即可直接在 IDE 里对
 | 进程意外退出后自动重启 | ❌ | 开启后崩溃自动拉起 |
 
 > ⚠️ 多个 `dsh web` 共用同一 DSH home 时并发写会话/配置可能互相破坏（DSH 当前版本
-> 不保证多实例安全）。0.1.1 起默认按项目隔离，凭据与设置仅单向继承，不会影响外部实例。
+> 不保证多实例安全）。默认的按项目隔离让插件与外部实例完全独立。
+
+---
+
+## 项目状态
+
+项目正在活跃开发中。版本历史与迭代进展见 [CHANGELOG.md](CHANGELOG.md)。
+
+---
 
 ## 本地构建
 
@@ -115,8 +147,9 @@ DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装�
 ## 架构
 
 插件 = 进程托管层（Kotlin）+ 内嵌浏览器（JCEF）+ DSH 官方 Web 前端。
-完整设计、组合层补丁逆向要点（网关重建、`ctx.provide` 谓词陷阱、h2c 升级陷阱）、
-按项目数据目录方案见 [docs/architecture.md](docs/architecture.md)。
+完整设计、组合层补丁逆向要点（网关重建、`ctx.provide` 谓词陷阱、h2c 升级陷阱、
+「For IDE」栏目的客户端模块注入）、按项目数据目录方案见
+[docs/architecture.md](docs/architecture.md)。
 
 ## 路线图
 
@@ -124,6 +157,8 @@ DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装�
 - [ ] 目录选择器 IDE 化（接入 IDE 原生对话框）
 - [ ] 基于 `dsh --profile headless` 的单次任务执行
 - [ ] 上架 JetBrains Marketplace
+
+---
 
 ## 反馈
 
@@ -134,8 +169,17 @@ DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装�
 - 设置页的 **复制诊断信息** 会快照版本、构建日期、内置 DSH 版本、数据目录、IDE 与
   操作系统——反馈时直接粘贴。
 
+---
+
 ## License
 
 MIT —— 见 [LICENSE](LICENSE)。插件内置了
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 运行时（MIT）；
 Harness 及其商标归各自所有者。
+
+<!-- LINK GROUP -->
+
+[github-stars-shield]: https://img.shields.io/github/stars/JayZz210l/deepseek-harness-for-ide?color=4D6BFE&labelColor=black&style=flat-square
+[github-forks-shield]: https://img.shields.io/github/forks/JayZz210l/deepseek-harness-for-ide?color=8ae8ff&labelColor=black&style=flat-square
+[github-issues-shield]: https://img.shields.io/github/issues/JayZz210l/deepseek-harness-for-ide?color=ff80eb&labelColor=black&style=flat-square
+[github-mit]: https://img.shields.io/badge/github-MIT-4D6BFE?logo=github
