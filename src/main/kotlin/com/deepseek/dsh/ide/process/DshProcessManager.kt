@@ -640,6 +640,12 @@ class DshProcessManager(private val project: Project) : Disposable {
     private fun openPathInIde(path: String) {
         ApplicationManager.getApplication().invokeLater {
             if (disposed.get() || project.isDisposed) return@invokeLater
+            // URLs — e.g. the feedback link of the "For IDE" settings section — open in
+            // the system browser instead of being treated as file paths.
+            if (path.startsWith("http://", ignoreCase = true) || path.startsWith("https://", ignoreCase = true)) {
+                runCatching { BrowserUtil.browse(path) }
+                return@invokeLater
+            }
             val file = File(path)
             if (file.isDirectory) {
                 runCatching { RevealFileAction.openFile(file) }

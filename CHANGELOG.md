@@ -2,7 +2,13 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
-## 0.1.5（未发布 → 发布后更新日期）
+## 0.1.6
+
+- 「For IDE」栏目的反馈入口从文字链接升级为**真正的按钮**（DSH primitives Button），
+  点击经 `host.openPath` 在**系统浏览器**中打开 GitHub Issues；
+- 插件端新增 URL 处理：`http/https` 路径不再按文件处理，直接调用系统浏览器打开。
+
+## 0.1.5
 
 - DSH 设置页新增「For IDE」栏目：插件信息（版本/构建日期）与反馈链接，经组合层客户端包
   （`dsh-ide-settings`）注入 Web 界面设置页；
