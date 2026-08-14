@@ -131,6 +131,9 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             exclude("**/*.ts")
         }
         into(layout.buildDirectory.dir("bundled-dsh-runtime"))
+        // The ide-settings resources are read inside doLast — declare them as inputs so
+        // a change re-runs the copy instead of being skipped as UP-TO-DATE.
+        inputs.dir(project.file("src/main/resources/dsh/ide-settings"))
         doLast {
             val manifestText = File(root, "node_modules/@deepseek-ai/dsh/package.json").readText()
             val version = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")

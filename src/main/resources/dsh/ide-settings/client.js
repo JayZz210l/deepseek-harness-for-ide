@@ -22,9 +22,16 @@ window.__ModuleLoader__.load({
       githubUrl: "__GITHUB_URL__",
     };
 
-    function h(tag, props, children) {
+    // Variadic createElement helper: collects ALL children arguments, so
+    // h("div", props, a, b, c) renders every child (a fixed-arity version
+    // silently dropped everything after the first child — the bug that left
+    // the section with only its description line).
+    function h(tag, props) {
       if (props === null) props = {};
-      return React.createElement(tag, props, children);
+      var children = Array.prototype.slice.call(arguments, 2);
+      if (children.length === 0) return React.createElement(tag, props);
+      if (children.length === 1) return React.createElement(tag, props, children[0]);
+      return React.createElement.apply(React, [tag, props].concat(children));
     }
 
     exports.apply = function apply(ctx) {
