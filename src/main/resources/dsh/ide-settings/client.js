@@ -20,6 +20,10 @@ window.__ModuleLoader__.load({
       buildDate: "__BUILD_DATE__",
       feedbackUrl: "__FEEDBACK_URL__",
       githubUrl: "__GITHUB_URL__",
+      // host.openPath markers recognized by the JetBrains plugin.
+      syncPluginsPath: "dsh-ide://sync-plugins",
+      syncAgentPresetsPath: "dsh-ide://sync-agent-presets",
+      resetPluginsPath: "dsh-ide://reset-plugins",
     };
 
     // Variadic createElement helper: collects ALL children arguments, so
@@ -58,6 +62,8 @@ window.__ModuleLoader__.load({
         return h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", padding: "4px 0" } },
           h("p", { style: { margin: 0, fontSize: "13px" } },
             "Deepseek Harness For IDE —— 把 DeepSeek Harness 嵌入 JetBrains IDE 的插件。"),
+          h("p", { style: { margin: 0, fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } },
+            "同步预设：把 ~/.dsh/.agent-presets 的预设复制到当前项目，无需重启。同步插件 / 恢复默认插件需要重启 DSH 服务，期间界面暂时不可用属于正常现象，请耐心等待。"),
           h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
             rows.map(function (row) {
               return h("div", { key: row[0], style: { display: "flex", gap: "12px", fontSize: "13px" } },
@@ -66,7 +72,13 @@ window.__ModuleLoader__.load({
               );
             }),
           ),
-          h("div", { style: { display: "flex", gap: "10px", paddingTop: "4px" } },
+          h("div", { style: { display: "flex", gap: "10px", paddingTop: "4px", flexWrap: "wrap" } },
+            h(Button, { variant: "outline", size: "sm", onClick: function () { openExternal(INFO.syncAgentPresetsPath); } },
+              "同步预设 / Sync presets"),
+            h(Button, { variant: "outline", size: "sm", onClick: function () { openExternal(INFO.syncPluginsPath); } },
+              "同步插件 / Sync plugins"),
+            h(Button, { variant: "ghost", size: "sm", onClick: function () { openExternal(INFO.resetPluginsPath); } },
+              "恢复默认插件 / Reset plugins"),
             h(Button, { variant: "outline", size: "sm", onClick: function () { openExternal(INFO.feedbackUrl); } },
               "反馈 BUG / Report a problem"),
             h(Button, { variant: "ghost", size: "sm", onClick: function () { openExternal(INFO.githubUrl); } },

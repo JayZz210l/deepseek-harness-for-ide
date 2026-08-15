@@ -72,6 +72,13 @@ install it. Marketplace releases follow the same version numbers.
 - **Startup checks** — API-key preflight (warns before the first dead turn), Node.js
   detection with download guidance, and a once-per-version update notice with the build
   date and what changed.
+- **One-click plugin & preset sync** — plugins installed in the terminal with
+  `dsh plugin --profile web add <pkg>` (under `~/.dsh`) and locally authored
+  agent presets (`~/.dsh/.agent-presets`) are copied into the current IDE
+  project's isolated home with one click in the web UI: DSH settings → **For IDE** →
+  **Sync plugins / Sync presets**. Plugin sync restarts the service automatically
+  and rolls back on failure; preset sync needs no restart. **Reset plugins**
+  restores the shipped default profile.
 
 ### Developer experience
 - **"For IDE" settings section** inside the DeepSeek Harness settings page — plugin info and
@@ -105,6 +112,8 @@ install it. Marketplace releases follow the same version numbers.
 | Chat / approve tools / manage sessions | Everything happens inside the embedded Harness UI |
 | Open a file changed by the agent | Click the file in the chat → opens in the IDE editor, or the **IDE native diff** when it has VCS changes |
 | Send code to DSH | Select code → right-click → **Send Selection to DeepSeek Harness** |
+| Sync plugins / presets from `~/.dsh` | In the embedded UI: Settings → **For IDE** → **Sync plugins** / **Sync presets** |
+| Reset plugins to defaults | Settings → **For IDE** → **Reset plugins** |
 | Start / stop / restart the service | Toolbar buttons in the tool window |
 | Logs & statistics | Toolbar **Show Details** → Log / Statistics tabs |
 | Report a problem | Toolbar **Feedback** button, or Settings → **Deepseek Harness For IDE** → **Report a problem / Copy diagnostics** |
@@ -143,7 +152,7 @@ dependencies and bundles the DSH runtime from the local npx cache — run
 `npx @deepseek-ai/dsh` once so a fresh DSH installation exists.
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.5.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.9.zip
 .\gradlew.bat runIde           # run a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # platform verification before publishing
 ```

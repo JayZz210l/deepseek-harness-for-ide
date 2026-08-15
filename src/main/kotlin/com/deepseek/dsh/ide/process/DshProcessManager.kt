@@ -77,6 +77,18 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Guards the one-time native→proxy fallback retry inside [startInternal]. */
     private var nativeRetryDepth = 0
 
+    /** Guards the plugin-sync entry point against duplicate clicks while one sync is queued/running. */
+    @Volatile
+    private var pluginSyncQueued = false
+
+    /** Guards the agent-preset sync entry point against duplicate clicks. */
+    @Volatile
+    private var presetSyncQueued = false
+
+    /** Guards the restore-default-plugins entry point against duplicate clicks. */
+    @Volatile
+    private var pluginResetQueued = false
+
     private val disposed = AtomicBoolean(false)
 
     /** Latest published status; safe to read from any thread. */
@@ -109,6 +121,40 @@ class DshProcessManager(private val project: Project) : Disposable {
             stopInternal()
             startInternal()
         }
+    }
+
+    /**
+     * Idempotent async one-way sync of the web-profile plugin manifests from the
+     * user's main DSH home into this project's isolated home (see [DshPluginSync]).
+     * A running server is stopped first and restarted afterwards, because profile
+     * files must not be rewritten under a live `dsh web` instance.
+     */
+    fun syncPluginsFromMainHomeAsync() {
+        if (disposed.get() || pluginSyncQueued) return
+        pluginSyncQueued = true
+        lifecycle.execute { syncPluginsInternal() }
+    }
+
+    /**
+     * Idempotent async one-way sync of locally authored agent presets
+     * (`<main home>/.agent-presets`) into this project's isolated home. No
+     * service restart is needed: DSH re-reads preset roots on every request.
+     */
+    fun syncAgentPresetsFromMainHomeAsync() {
+        if (disposed.get() || presetSyncQueued) return
+        presetSyncQueued = true
+        lifecycle.execute { syncAgentPresetsInternal() }
+    }
+
+    /**
+     * Idempotent async removal of the synced plugin profile, restoring DSH's
+     * shipped default web profile. A running server is stopped and restarted;
+     * when the restart fails, the previous synced profile is restored.
+     */
+    fun resetPluginsToDefaultAsync() {
+        if (disposed.get() || pluginResetQueued) return
+        pluginResetQueued = true
+        lifecycle.execute { resetPluginsInternal() }
     }
 
     override fun dispose() {
@@ -417,6 +463,192 @@ class DshProcessManager(private val project: Project) : Disposable {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Plugin sync from the main DSH home (always on the lifecycle thread)
+    // ---------------------------------------------------------------------------------------------
+
+    private fun syncPluginsInternal() {
+        val syncLog = mutableListOf<String>()
+        try {
+            val settings = DshSettingsState.getInstance().current
+            val targetHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            val mainHome = DshHomePolicy.mainHome()
+            if (targetHome == null || sameDirectoryPath(targetHome, mainHome.toString())) {
+                notify(DshBundle.message("dsh.notify.syncPlugins.sameHome"), NotificationType.INFORMATION)
+                return
+            }
+
+            if (!DshPluginSync.hasPlugins(mainHome)) {
+                notify(DshBundle.message("dsh.notify.syncPlugins.nothing", mainHome), NotificationType.INFORMATION)
+                return
+            }
+
+            // Reassure the user BEFORE the embedded page disappears: the stop +
+            // pnpm install + restart sequence looks like a crash without context.
+            notify(DshBundle.message("dsh.notify.syncPlugins.started"), NotificationType.INFORMATION)
+
+            val wasRunning = currentStatus.state == DshServerState.RUNNING
+            if (wasRunning) stopInternal()
+
+            // SYNCING keeps the status card visible with a "this is normal" hint
+            // and disables the start/stop/restart toolbar actions until the sync
+            // (or the automatic restart) settles.
+            publish(DshServerStatus(DshServerState.SYNCING, detail = DshBundle.message("dsh.status.syncing.detail")))
+
+            // Lines are appended to the rolling log LIVE (install output arrives on
+            // its own pump thread), so an open Log tab shows progress while waiting.
+            val result = DshPluginSync.sync(mainHome, Paths.get(targetHome)) { line ->
+                syncLog += line
+                addLog(line)
+            }
+            when {
+                result.error == DshPluginSync.ERROR_PNPM_NOT_FOUND -> {
+                    notifyNoPnpm()
+                }
+                result.error != null -> {
+                    notify(
+                        DshBundle.message("dsh.notify.syncPlugins.failed", result.error),
+                        NotificationType.ERROR,
+                    )
+                }
+                result.changed -> {
+                    notify(DshBundle.message("dsh.notify.syncPlugins.done"), NotificationType.INFORMATION)
+                }
+                else -> {
+                    notify(DshBundle.message("dsh.notify.syncPlugins.upToDate"), NotificationType.INFORMATION)
+                }
+            }
+
+            if (wasRunning) {
+                startInternal()
+            } else {
+                publish(DshServerStatus(DshServerState.STOPPED))
+            }
+        } finally {
+            // startInternal clears the rolling log at its beginning, so the sync
+            // transcript is appended again afterwards to survive the restart.
+            syncLog.forEach(::addLog)
+            pluginSyncQueued = false
+        }
+    }
+
+    /** Error balloon with a one-click action opening the pnpm installation page. */
+    private fun notifyNoPnpm() {
+        ApplicationManager.getApplication().invokeLater {
+            if (disposed.get() || project.isDisposed) return@invokeLater
+            val notification = NotificationGroupManager.getInstance()
+                .getNotificationGroup("DeepSeekHarness")
+                .createNotification(DshBundle.message("dsh.notify.syncPlugins.pnpmMissing"), NotificationType.ERROR)
+            notification.addAction(
+                NotificationAction.createSimpleExpiring(
+                    DshBundle.message("dsh.notify.syncPlugins.pnpmInstall"),
+                ) {
+                    runCatching { BrowserUtil.browse("https://pnpm.io/installation") }
+                },
+            )
+            notification.notify(project)
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Agent-preset sync from the main DSH home (always on the lifecycle thread)
+    // ---------------------------------------------------------------------------------------------
+
+    private fun syncAgentPresetsInternal() {
+        val syncLog = mutableListOf<String>()
+        try {
+            val settings = DshSettingsState.getInstance().current
+            val targetHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            val mainHome = DshHomePolicy.mainHome()
+            if (targetHome == null || sameDirectoryPath(targetHome, mainHome.toString())) {
+                notify(DshBundle.message("dsh.notify.syncPlugins.sameHome"), NotificationType.INFORMATION)
+                return
+            }
+
+            if (!DshPresetSync.hasPresets(mainHome)) {
+                notify(DshBundle.message("dsh.notify.syncPresets.nothing", mainHome), NotificationType.INFORMATION)
+                return
+            }
+
+            val result = DshPresetSync.sync(mainHome, Paths.get(targetHome)) { line ->
+                syncLog += line
+                addLog(line)
+            }
+            when {
+                result.error != null -> {
+                    notify(DshBundle.message("dsh.notify.syncPresets.failed", result.error), NotificationType.ERROR)
+                }
+                result.changed -> {
+                    notify(DshBundle.message("dsh.notify.syncPresets.done", mainHome), NotificationType.INFORMATION)
+                }
+                else -> {
+                    notify(DshBundle.message("dsh.notify.syncPresets.upToDate"), NotificationType.INFORMATION)
+                }
+            }
+        } finally {
+            syncLog.forEach(::addLog)
+            presetSyncQueued = false
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Restore-default-plugins (always on the lifecycle thread)
+    // ---------------------------------------------------------------------------------------------
+
+    private fun resetPluginsInternal() {
+        try {
+            val settings = DshSettingsState.getInstance().current
+            val targetHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            val mainHome = DshHomePolicy.mainHome()
+            if (targetHome == null || sameDirectoryPath(targetHome, mainHome.toString())) {
+                notify(DshBundle.message("dsh.notify.resetPlugins.sameHome"), NotificationType.WARNING)
+                return
+            }
+
+            val homePath = Paths.get(targetHome)
+            if (!DshPluginReset.hasWebProfile(homePath)) {
+                notify(DshBundle.message("dsh.notify.resetPlugins.nothing"), NotificationType.INFORMATION)
+                return
+            }
+
+            // Same reassurance pattern as the plugin sync: the embedded page
+            // disappears during the reset and comes back by itself.
+            notify(DshBundle.message("dsh.notify.resetPlugins.started"), NotificationType.INFORMATION)
+
+            val wasRunning = currentStatus.state == DshServerState.RUNNING
+            if (wasRunning) stopInternal()
+
+            publish(DshServerStatus(DshServerState.RESETTING, detail = DshBundle.message("dsh.status.resetting.detail")))
+
+            val outcome = DshPluginReset.removeWebProfile(homePath) { addLog(it) }
+            if (outcome.error != null) {
+                addLog("Plugin reset failed: ${outcome.error}")
+                notify(DshBundle.message("dsh.notify.resetPlugins.failed", outcome.error), NotificationType.ERROR)
+            }
+
+            if (wasRunning) {
+                startInternal()
+                if (currentStatus.state == DshServerState.RUNNING) {
+                    // The re-initialized default profile booted; the synced copy can go.
+                    DshPluginReset.discardBackup(homePath) { addLog(it) }
+                    notify(DshBundle.message("dsh.notify.resetPlugins.done"), NotificationType.INFORMATION)
+                } else {
+                    // Never leave the user on a half-reset profile that failed to boot.
+                    DshPluginReset.restoreBackup(homePath) { addLog(it) }
+                    notify(
+                        DshBundle.message("dsh.notify.resetPlugins.restartFailed", currentStatus.detail.orEmpty()),
+                        NotificationType.ERROR,
+                    )
+                }
+            } else {
+                DshPluginReset.discardBackup(homePath) { addLog(it) }
+                notify(DshBundle.message("dsh.notify.resetPlugins.doneStopped"), NotificationType.INFORMATION)
+            }
+        } finally {
+            pluginResetQueued = false
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Output capture / readiness
     // ---------------------------------------------------------------------------------------------
 
@@ -640,6 +872,22 @@ class DshProcessManager(private val project: Project) : Disposable {
     private fun openPathInIde(path: String) {
         ApplicationManager.getApplication().invokeLater {
             if (disposed.get() || project.isDisposed) return@invokeLater
+            // The "For IDE" settings-section buttons travel through host.openPath
+            // as marker paths and never reach the file system.
+            when {
+                path.equals(SYNC_PLUGINS_PATH, ignoreCase = true) -> {
+                    syncPluginsFromMainHomeAsync()
+                    return@invokeLater
+                }
+                path.equals(SYNC_AGENT_PRESETS_PATH, ignoreCase = true) -> {
+                    syncAgentPresetsFromMainHomeAsync()
+                    return@invokeLater
+                }
+                path.equals(RESET_PLUGINS_PATH, ignoreCase = true) -> {
+                    resetPluginsToDefaultAsync()
+                    return@invokeLater
+                }
+            }
             // URLs — e.g. the feedback link of the "For IDE" settings section — open in
             // the system browser instead of being treated as file paths.
             if (path.startsWith("http://", ignoreCase = true) || path.startsWith("https://", ignoreCase = true)) {
@@ -883,5 +1131,17 @@ class DshProcessManager(private val project: Project) : Disposable {
                 project.messageBus.syncPublisher(DshServerTopics.SERVER_STATUS).onStatusChanged(status)
             }
         }
+    }
+
+    companion object {
+        /**
+         * Special `host.openPath` targets the "For IDE" settings section sends
+         * when the user clicks its management buttons: recognized by
+         * [openPathInIde] and routed to the matching manager entry point instead
+         * of the file system.
+         */
+        const val SYNC_PLUGINS_PATH = "dsh-ide://sync-plugins"
+        const val SYNC_AGENT_PRESETS_PATH = "dsh-ide://sync-agent-presets"
+        const val RESET_PLUGINS_PATH = "dsh-ide://reset-plugins"
     }
 }

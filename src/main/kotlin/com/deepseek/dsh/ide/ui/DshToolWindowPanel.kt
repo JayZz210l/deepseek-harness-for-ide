@@ -176,6 +176,7 @@ class DshToolWindowPanel(private val project: Project) {
             val status = manager.currentStatus()
             val running = status.state == DshServerState.RUNNING
             val busy = status.state == DshServerState.STARTING || status.state == DshServerState.STOPPING
+                || status.state == DshServerState.SYNCING || status.state == DshServerState.RESETTING
             e.presentation.isEnabled = !busy
             e.presentation.text = if (running) DshBundle.message("dsh.action.stop") else DshBundle.message("dsh.action.start")
             e.presentation.description = if (running) DshBundle.message("dsh.action.stop.desc") else DshBundle.message("dsh.action.start.desc")
@@ -197,7 +198,10 @@ class DshToolWindowPanel(private val project: Project) {
     ) {
         override fun update(e: AnActionEvent) {
             val status = manager.currentStatus()
-            e.presentation.isEnabled = status.state != DshServerState.STARTING && status.state != DshServerState.STOPPING
+            e.presentation.isEnabled = status.state != DshServerState.STARTING
+                && status.state != DshServerState.STOPPING
+                && status.state != DshServerState.SYNCING
+                && status.state != DshServerState.RESETTING
         }
 
         override fun actionPerformed(e: AnActionEvent) {
@@ -315,6 +319,16 @@ class DshToolWindowPanel(private val project: Project) {
                     stateLabel.text = "<html><b>${DshBundle.message("dsh.status.failed")}</b></html>"
                     detailLabel.text = "<html>${status.detail.orEmpty()}<br>${DshBundle.message("dsh.status.failed.detail")}</html>"
                     retryButton.isVisible = true
+                }
+                DshServerState.SYNCING -> {
+                    stateLabel.text = "<html><b>${DshBundle.message("dsh.status.syncing")}</b></html>"
+                    detailLabel.text = "<html>${status.detail.orEmpty()}</html>"
+                    retryButton.isVisible = false
+                }
+                DshServerState.RESETTING -> {
+                    stateLabel.text = "<html><b>${DshBundle.message("dsh.status.resetting")}</b></html>"
+                    detailLabel.text = "<html>${status.detail.orEmpty()}</html>"
+                    retryButton.isVisible = false
                 }
                 DshServerState.RUNNING -> Unit // handled by the browser card
             }

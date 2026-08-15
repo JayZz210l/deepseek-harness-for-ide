@@ -64,7 +64,12 @@
 - **每项目隔离数据**——每个项目独立 DSH home，启动时从 `~/.dsh` 单向继承凭据与设置，
   绝不触碰外部浏览器中运行的 `dsh web`（DSH 当前版本多实例共用 home 不安全）；
 - **启动自检**——API Key 预检（缺失弹窗引导）、Node.js 检测与下载引导、每版本一次的
-  更新公告（含更新日期与内容）。
+  更新公告（含更新日期与内容）；
+- **一键同步插件与预设**——在终端用 `dsh plugin --profile web add <包名>` 安装到
+  `~/.dsh` 的插件，以及 `~/.dsh/.agent-presets` 下自建的 Agent 预设，可在内嵌界面
+  设置 → **For IDE** → **同步插件 / 同步预设** 一键复制到当前 IDE 项目的隔离数据目录；
+  插件同步会自动重启服务（失败自动回滚），预设同步无需重启；**恢复默认插件** 可一键
+  清空之前同步的插件，回到出厂默认配置。
 
 ### 开发者体验
 - **DSH 设置页内的「For IDE」栏目**——插件信息与反馈链接，经组合层客户端包注入
@@ -95,6 +100,8 @@
 | 对话 / 审批工具 / 管理会话 | 全部在内嵌的 Harness 界面中完成 |
 | 打开智能体改动的文件 | 聊天中点文件 → IDE 编辑器；有 VCS 改动时打开 **IDE 原生 Diff** |
 | 发送代码给 DSH | 选中代码 → 右键 **Send Selection to DeepSeek Harness** |
+| 同步 `~/.dsh` 中的插件 / 预设 | 内嵌界面 设置 → **For IDE** → **同步插件 / 同步预设** |
+| 恢复默认插件 | 内嵌界面 设置 → **For IDE** → **恢复默认插件** |
 | 启动 / 停止 / 重启服务 | 工具窗口工具栏按钮 |
 | 日志与统计 | 工具栏 **Show Details** → Log / Statistics 标签页 |
 | 报告问题 | 工具栏 **反馈** 按钮，或 设置 → **Deepseek Harness For IDE** → 反馈 / 复制诊断信息 |
@@ -131,7 +138,7 @@
 DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装。
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.5.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.9.zip
 .\gradlew.bat runIde           # 带插件的沙箱 IDE 调试
 .\gradlew.bat verifyPlugin     # 上架前的平台验证
 ```

@@ -162,6 +162,14 @@ dsh web [--host <host>] [--port <port>] [--trusted-host <authority>...]
 已实现（v0.2.0 → v0.4.0）：
 
 1. ✅ **编辑器选区直发提问**（`session.prompt` 直连 /api，自动定位会话）；
+1.5 ✅ **插件 / 预设同步与恢复默认**（0.1.9）：「For IDE」栏目按钮经 `host.openPath`
+   发送 `dsh-ide://sync-plugins` / `dsh-ide://sync-agent-presets` /
+   `dsh-ide://reset-plugins` 标记路径。`DshPluginSync` 把主 home `profiles/web` 的
+   清单文件单向复制进项目隔离 home 并运行 `pnpm install`（覆盖前备份、失败回滚）；
+   `DshPresetSync` 复制 `~/.dsh/.agent-presets` 预设目录（DSH 预设发现实时重读，无需
+   重启）；`DshPluginReset` 用「先改名备份、重启成功再删除、重启失败还原」的原子方式
+   清空已同步插件并回到出厂默认。同步/重置期间新增 `SYNCING` / `RESETTING` 状态卡
+   （温馨提示 + 禁用启停/重启按钮），避免用户误判为崩溃；
 2. ✅ **使用统计面板** 与 **中英双语 i18n**；
 3. ✅ **IDE 内文件跳转 — 双实现**：
    - **传输层 TCP 代理**（`DshApiProxy`，v0.2.0）：逐请求解析转发循环，拦截

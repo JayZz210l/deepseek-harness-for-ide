@@ -8,6 +8,8 @@ enum class DshServerState {
     RUNNING,
     STOPPING,
     FAILED,
+    SYNCING,
+    RESETTING,
 }
 
 /**

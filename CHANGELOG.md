@@ -2,6 +2,21 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.9
+
+- 插件同步：DSH 设置页「For IDE」栏目新增「同步插件 / Sync plugins」按钮；
+- 点击后把主 DSH 数据目录（`~/.dsh`）`profiles/web` 下的插件清单
+  （`package.json`、`cordis.patch.yml`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`）
+  单向复制到当前项目的隔离数据目录，并运行 `pnpm install` 拉齐依赖；
+- 安全：覆盖前备份，安装失败自动回滚；运行中的服务会先停后启；pnpm 缺失时
+  弹窗一键引导安装（https://pnpm.io/installation）；
+- 同步预设：「同步预设 / Sync presets」把 `~/.dsh/.agent-presets` 的本地预设
+  复制到当前项目，预设发现是实时重读的，**无需重启**；
+- 恢复默认插件：「恢复默认插件 / Reset plugins」清理之前同步的插件 profile
+  （原子重命名备份），下次启动自动回到出厂默认；重启失败自动还原旧配置；
+- 体验：同步/重置期间状态卡显示「正在同步插件/正在恢复默认插件」温馨提示，
+  并禁用启停/重启按钮，避免用户误判为崩溃而手动干预。
+
 ## 0.1.8
 
 - 全新插件图标：插件图标（`pluginIcon.svg`）与工具窗口图标（`dshToolWindow.svg`）更新为
