@@ -58,6 +58,8 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     private val logLines = Collections.synchronizedList(LinkedList<String>())
 
+    private val nodeResolver = NodeExecutableResolver()
+
     @Volatile
     private var currentStatus: DshServerStatus = DshServerStatus()
 
@@ -196,19 +198,30 @@ class DshProcessManager(private val project: Project) : Disposable {
         }
 
         // Fast, actionable failure instead of a cryptic spawn error: the bundled dsh
-        // runtime (and every dsh shim) needs Node.js. PATH and the optional bundled
-        // node-runtime are both considered; an explicitly configured executable path
+        // runtime (and every dsh shim) needs Node.js. The inherited PATH, refreshed
+        // Windows environment and optional bundled node-runtime are considered; an explicit path
         // (e.g. a full node.exe path inside the command) skips this. When Node.js is
         // missing, the status card explains it and a balloon with a one-click download
         // link points the user at nodejs.org.
         val firstToken = parseCommandTokens(command).firstOrNull() ?: ""
-        if (resolveNode() == null && DshBundledRuntime.binJs() != null && !looksLikeExplicitPath(firstToken)) {
-            publish(DshServerStatus(DshServerState.FAILED, detail = DshBundle.message("dsh.proc.noNode")))
-            notifyNoNode()
+        val nodeResolution = resolveNode()
+        if (nodeResolution.executable == null && DshBundledRuntime.binJs() != null && !looksLikeExplicitPath(firstToken)) {
+            val unsupportedVersion = nodeResolution.unsupportedVersion
+            val detail = if (unsupportedVersion != null) {
+                DshBundle.message(
+                    "dsh.proc.nodeTooOld",
+                    unsupportedVersion,
+                    nodeResolution.unsupportedExecutable ?: "?",
+                )
+            } else {
+                DshBundle.message("dsh.proc.noNode")
+            }
+            publish(DshServerStatus(DshServerState.FAILED, detail = detail))
+            notifyNoNode(unsupportedVersion)
             return
         }
 
-        val baseTokens = buildTokens(settings)
+        val baseTokens = buildTokens(settings, nodeResolution.executable)
         val mode = settings.fileJumpMode.ifBlank { "auto" }
 
         // ── Native (composition patch) preparation ────────────────────────────────────────────────
@@ -245,6 +258,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         }
 
         val pb = ProcessBuilder(platformCommand(finalTokens))
+        addNodeToPath(pb, nodeResolution.executable)
         project.basePath?.let { base ->
             runCatching { pb.directory(File(base)) }
         }
@@ -692,8 +706,8 @@ class DshProcessManager(private val project: Project) : Disposable {
     // Command building
     // ---------------------------------------------------------------------------------------------
 
-    private fun buildTokens(settings: DshSettingsState.Settings): List<String> {
-        val resolved = resolveCommandTokens(settings)
+    private fun buildTokens(settings: DshSettingsState.Settings, nodeExecutable: String?): List<String> {
+        val resolved = resolveCommandTokens(settings, nodeExecutable)
         val tokens = (if (resolved.isEmpty()) mutableListOf(settings.dshCommand.trim()) else resolved.toMutableList())
         tokens += "web"
         tokens += listOf("--host", settings.host.trim().ifBlank { "127.0.0.1" })
@@ -712,7 +726,7 @@ class DshProcessManager(private val project: Project) : Disposable {
      * - when nothing is on PATH, the npm/npx caches are searched: `node <cached bin.js>` is
      *   preferred (no shim quoting pitfalls), the npx `dsh.cmd` shim is the last resort.
      */
-    private fun resolveCommandTokens(settings: DshSettingsState.Settings): List<String> {
+    private fun resolveCommandTokens(settings: DshSettingsState.Settings, nodeExecutable: String?): List<String> {
         val parsed = parseCommandTokens(settings.dshCommand)
         if (parsed.isEmpty()) return emptyList()
         val exe = parsed.first()
@@ -730,20 +744,18 @@ class DshProcessManager(private val project: Project) : Disposable {
         // is bundled too — PATH wins, the plugin's node-runtime is the fallback.
         val bundledBinJs = DshBundledRuntime.binJs()
         if (bundledBinJs != null) {
-            val node = resolveNode()
-            if (node != null) {
+            if (nodeExecutable != null) {
                 addLog(DshBundle.message("dsh.proc.locatingBundled", DshBundledRuntime.version() ?: "?"))
-                return listOf(node, bundledBinJs.toString()) + tail
+                return listOf(nodeExecutable, bundledBinJs.toString()) + tail
             }
             addLog(DshBundle.message("dsh.proc.bundledNeedsNode"))
         }
 
         val binJs = findNpxCachedBinJs()
         if (binJs != null) {
-            val node = resolveNode()
-            if (node != null) {
-                addLog(DshBundle.message("dsh.proc.locatingNpx", node, binJs))
-                return listOf(node, binJs) + tail
+            if (nodeExecutable != null) {
+                addLog(DshBundle.message("dsh.proc.locatingNpx", nodeExecutable, binJs))
+                return listOf(nodeExecutable, binJs) + tail
             }
         }
 
@@ -785,15 +797,36 @@ class DshProcessManager(private val project: Project) : Disposable {
             || lower.endsWith(".com") || lower.endsWith(".ps1") || lower.endsWith(".js")
     }
 
-    /**
-     * Node.js executable for running dsh: PATH first, the plugin's bundled
-     * `node-runtime` as fallback, so machines without Node.js still work.
-     */
-    private fun resolveNode(): String? {
-        findOnPath("node")?.let { return it }
-        val bundled = DshBundledRuntime.nodeExe()?.toString()
-        if (bundled != null) addLog(DshBundle.message("dsh.proc.locatingBundledNode"))
-        return bundled
+    /** Resolve and execute-probe Node.js, including Windows environment updates after IDE launch. */
+    private fun resolveNode(): NodeExecutableResolver.Resolution {
+        val resolution = nodeResolver.resolve(DshBundledRuntime.nodeExe())
+        if (resolution.executable != null) {
+            if (resolution.source == NodeExecutableResolver.Source.BUNDLED) {
+                addLog(DshBundle.message("dsh.proc.locatingBundledNode"))
+            }
+            val messageKey = if (resolution.source == NodeExecutableResolver.Source.CURRENT_WINDOWS_ENVIRONMENT) {
+                "dsh.proc.nodeDetectedFresh"
+            } else {
+                "dsh.proc.nodeDetected"
+            }
+            addLog(DshBundle.message(messageKey, resolution.version ?: "?", resolution.executable))
+        }
+        return resolution
+    }
+
+    /** Ensure subprocesses launched by dsh can resolve the same Node executable. */
+    private fun addNodeToPath(processBuilder: ProcessBuilder, nodeExecutable: String?) {
+        val nodeDir = nodeExecutable?.let(::File)?.parentFile?.absolutePath ?: return
+        val environment = processBuilder.environment()
+        val pathKey = environment.keys.firstOrNull { it.equals("PATH", ignoreCase = SystemInfo.isWindows) }
+            ?: if (SystemInfo.isWindows) "Path" else "PATH"
+        val currentPath = environment[pathKey].orEmpty()
+        val alreadyPresent = currentPath.split(File.pathSeparatorChar).any {
+            it.trim().trim('"').equals(nodeDir, ignoreCase = SystemInfo.isWindows)
+        }
+        if (!alreadyPresent) {
+            environment[pathKey] = if (currentPath.isBlank()) nodeDir else "$nodeDir${File.pathSeparator}$currentPath"
+        }
     }
 
     private fun findOnPath(name: String): String? {
@@ -803,7 +836,8 @@ class DshProcessManager(private val project: Project) : Disposable {
             candidates += pathExt.split(';').filter { it.isNotBlank() }.map { name + it.lowercase() }
         }
         val pathVar = System.getenv("PATH") ?: return null
-        for (dir in pathVar.split(File.pathSeparator)) {
+        for (rawDir in pathVar.split(File.pathSeparator)) {
+            val dir = rawDir.trim().trim('"')
             if (dir.isBlank()) continue
             for (candidate in candidates) {
                 val file = File(dir, candidate)
@@ -960,12 +994,17 @@ class DshProcessManager(private val project: Project) : Disposable {
     }
 
     /** Error balloon with a one-click action opening the Node.js download page. */
-    private fun notifyNoNode() {
+    private fun notifyNoNode(unsupportedVersion: String?) {
         ApplicationManager.getApplication().invokeLater {
             if (disposed.get() || project.isDisposed) return@invokeLater
+            val content = if (unsupportedVersion != null) {
+                DshBundle.message("dsh.notify.nodeTooOld", unsupportedVersion)
+            } else {
+                DshBundle.message("dsh.notify.noNode")
+            }
             val notification = NotificationGroupManager.getInstance()
                 .getNotificationGroup("DeepSeekHarness")
-                .createNotification(DshBundle.message("dsh.notify.noNode"), NotificationType.ERROR)
+                .createNotification(content, NotificationType.ERROR)
             notification.addAction(
                 NotificationAction.createSimpleExpiring(
                     DshBundle.message("dsh.notify.noNode.download"),

@@ -112,8 +112,9 @@ dsh web [--host <host>] [--port <port>] [--trusted-host <authority>...]
 状态机：`STOPPED → STARTING → RUNNING ⇄ STOPPING`，异常 → `FAILED`。
 
 - 所有生命周期操作在单线程 `ScheduledExecutorService` 上串行执行，线程安全；
-- `start`：校验命令 → 解析 dsh 命令（显式路径 > PATH > **插件内置运行时** > npx 缓存，
-  内置运行时时同时校验 PATH 中的 `node`，缺失则直接给出安装指引而不是等进程报错）→
+- `start`：校验命令 → 解析 dsh 命令（显式路径 > PATH > **插件内置运行时** > npx 缓存；
+  Node.js 会实际执行 `--version` 校验 18+，Windows 下依次检查 IDE 进程 PATH、当前用户/系统
+  环境 PATH 与常见安装位置，避免 Node 安装晚于 IDE 启动时误报；最终把 Node 目录注入子进程 PATH）→
   组装 `cmd.exe /c`（Windows）或 `/bin/sh -c`（其他平台）→
   spawn → 双线程泵取 stdout/stderr → 正则捕获 URL（90s 超时）→ HTTP 健康轮询
   （45s 超时）→ 发布 `RUNNING(url)` → 注册 `process.onExit` 看门狗；
@@ -154,7 +155,8 @@ dsh web [--host <host>] [--port <port>] [--trusted-host <authority>...]
   `node.exe`（+LICENSE）复制进 `node-runtime/`，来源 `-PnodeRuntimePath` → PATH →
   `C:\Program Files\nodejs`。**默认不打包**（`skipNodeRuntime` 默认 true，`-PskipNodeRuntime=false`
   重新启用）：改为启动时未检测到 node 则 FAILED + 带"下载 Node.js"按钮的弹窗引导到
-  nodejs.org。运行时解析顺序：PATH 中的 node → 内置 node（若启用）。同样按平台分发；
+  nodejs.org。运行时解析顺序：进程 PATH → Windows 当前用户/系统 PATH → 常见安装位置 →
+  内置 node（若启用），并区分“未安装”与“版本低于 18”。同样按平台分发；
   上架 Marketplace 前应把 Node.js 的 LICENSE 放进构建来源目录或写进商店描述；
 
 ## 7. 路线图（第二阶段）

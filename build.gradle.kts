@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.9"
+version = "0.1.10"
 
 repositories {
     mavenCentral()
@@ -21,6 +21,7 @@ repositories {
 dependencies {
     // The IntelliJ Platform bundles its own Kotlin stdlib since 2024.2; keep ours compile-only.
     compileOnly(kotlin("stdlib"))
+    testImplementation("junit:junit:4.13.2")
 
     intellijPlatform {
         // JCEF API classes (com.intellij.ui.jcef.*) ship in the platform core (lib/app-client.jar)
@@ -44,7 +45,7 @@ intellijPlatform {
     pluginConfiguration {
         ideaVersion {
             sinceBuild = "243"
-            untilBuild = "261.*"
+            untilBuild = "262.*"
         }
     }
 

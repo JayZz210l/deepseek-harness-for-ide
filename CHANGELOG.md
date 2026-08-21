@@ -2,6 +2,16 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.10
+
+- 修复 Node.js 已安装、终端中 `node -v` 正常，但插件因 IDE 启动时 PATH 过期而误报
+  “未检测到 Node.js”的问题：Windows 下实时读取当前用户/系统环境 PATH；
+- Node 检测改为实际执行 `node --version` 并校验 18+，找到的 Node 目录会注入 DSH
+  子进程 PATH；版本过低时给出准确提示，不再误报为未安装；
+- 合入 PR #2：修复 Windows 用户名含单引号时生成的 `patch.yml` 无法解析，并增加
+  PyCharm 2026.2（262）可选 JCEF 模块兼容；同步修正 Gradle 的 `untilBuild`，确保
+  最终安装包不会被构建过程改回 261.*。
+
 ## 0.1.9
 
 - 插件同步：DSH 设置页「For IDE」栏目新增「同步插件 / Sync plugins」按钮；

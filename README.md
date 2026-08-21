@@ -70,8 +70,8 @@ install it. Marketplace releases follow the same version numbers.
   settings are inherited one-way from `~/.dsh` at startup. An externally running `dsh web`
   is never touched (multi-instance sharing of one home is unsafe in DSH).
 - **Startup checks** — API-key preflight (warns before the first dead turn), Node.js
-  detection with download guidance, and a once-per-version update notice with the build
-  date and what changed.
+  18+ execution/version validation with live Windows environment refresh and download
+  guidance, and a once-per-version update notice with the build date and what changed.
 - **One-click plugin & preset sync** — plugins installed in the terminal with
   `dsh plugin --profile web add <pkg>` (under `~/.dsh`) and locally authored
   agent presets (`~/.dsh/.agent-presets`) are copied into the current IDE
@@ -92,7 +92,7 @@ install it. Marketplace releases follow the same version numbers.
 
 ## Requirements
 
-- JetBrains IDE **2024.3+** (`since 243 / until 261.*`) — IntelliJ IDEA, PyCharm, WebStorm,
+- JetBrains IDE **2024.3+** (`since 243 / until 262.*`) — IntelliJ IDEA, PyCharm, WebStorm,
   GoLand, Rider, and other platform-based IDEs.
 - **Node.js 18+** — the DSH runtime is bundled; Node is not. The plugin prompts you to
   download it when missing.
@@ -152,7 +152,7 @@ dependencies and bundles the DSH runtime from the local npx cache — run
 `npx @deepseek-ai/dsh` once so a fresh DSH installation exists.
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.9.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.10.zip
 .\gradlew.bat runIde           # run a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # platform verification before publishing
 ```

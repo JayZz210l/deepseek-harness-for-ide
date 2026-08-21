@@ -12,7 +12,9 @@ import java.nio.file.Path
  * the runtime sits at `<plugins>/deepseek-harness-jetbrains/dsh-runtime`.
  *
  * With this runtime present the plugin works on machines without a global
- * `dsh` install; only Node.js on PATH is still required to execute it.
+ * `dsh` install; only Node.js 18+ is still required to execute it. On Windows,
+ * Node resolution also reads the current user/machine environment so an IDE
+ * started before Node was installed does not need to be restarted.
  * Resolution order in [DshProcessManager]: explicit command setting → PATH →
  * bundled runtime → npx cache.
  */

@@ -63,7 +63,8 @@
 ### 数据安全与隔离
 - **每项目隔离数据**——每个项目独立 DSH home，启动时从 `~/.dsh` 单向继承凭据与设置，
   绝不触碰外部浏览器中运行的 `dsh web`（DSH 当前版本多实例共用 home 不安全）；
-- **启动自检**——API Key 预检（缺失弹窗引导）、Node.js 检测与下载引导、每版本一次的
+- **启动自检**——API Key 预检（缺失弹窗引导）、Node.js 18+ 可执行/版本校验（Windows
+  实时刷新用户/系统环境，安装 Node 晚于 IDE 启动也不会误报）与下载引导、每版本一次的
   更新公告（含更新日期与内容）；
 - **一键同步插件与预设**——在终端用 `dsh plugin --profile web add <包名>` 安装到
   `~/.dsh` 的插件，以及 `~/.dsh/.agent-presets` 下自建的 Agent 预设，可在内嵌界面
@@ -82,8 +83,8 @@
 
 ## 环境要求
 
-- JetBrains IDE **2024.3+**（`since 243 / until 261.*`，已实测 IntelliJ IDEA 2024.3 与
-  JetBrains Rider 2026.1）；
+- JetBrains IDE **2024.3+**（`since 243 / until 262.*`，已实测 IntelliJ IDEA 2024.3、
+  JetBrains Rider 2026.1 与 PyCharm 2026.2）；
 - **Node.js 18+**（DSH 运行时已内置，Node 未内置——缺失时插件会引导下载）；
 - **DeepSeek API Key**：首次在终端跑一次 `npx @deepseek-ai/dsh web`，在 Models 页面保存
   `DEEPSEEK_API_KEY`，插件启动时自动继承。
@@ -138,7 +139,7 @@
 DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装。
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.9.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.10.zip
 .\gradlew.bat runIde           # 带插件的沙箱 IDE 调试
 .\gradlew.bat verifyPlugin     # 上架前的平台验证
 ```
