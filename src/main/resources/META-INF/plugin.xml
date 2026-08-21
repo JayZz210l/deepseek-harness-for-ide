@@ -37,9 +37,12 @@
       <p>0.1.1 — Deepseek Harness For IDE 首个版本（更名后全新版本号）：在 IDE 侧边栏内嵌完整 DeepSeek Harness；内置 DSH 运行时，无需安装 dsh；按项目隔离数据目录并单向继承凭据；工作区默认锁定 IDE 项目；文件跳转到 IDE、IDE 原生 Diff（VCS 基线）、编辑器选区直发；启动即检测 API Key。</p>
     ]]></change-notes>
 
-    <idea-version since-build="243" until-build="261.*"/>
+    <idea-version since-build="243" until-build="262.*"/>
 
     <depends>com.intellij.modules.platform</depends>
+    <!-- PyCharm 2026.2 (262) split JCEF into its own module; without this the
+         tool window fails with NoClassDefFoundError: com.intellij.ui.jcef.JBCefApp -->
+    <depends optional="true">com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="com.deepseek.dsh.ide.settings.DshSettingsState"/>

@@ -60,7 +60,10 @@ object DshNativeSupport {
                     "  disabled: true\n" +
                     "- insert:\n" +
                     "    - id: ide-api-gateway\n" +
-                    "      name: '$moduleUri'\n" +
+                    // Double-quoted: a Windows user name may contain an apostrophe
+                    // (e.g. Alan'lovcoxin), which would terminate a single-quoted
+                    // YAML scalar early; `"` cannot occur in a file:// URI.
+                    "      name: \"$moduleUri\"\n" +
                     settingsRow
                 )
             Files.write(patchFile, yaml.toByteArray(StandardCharsets.UTF_8))
