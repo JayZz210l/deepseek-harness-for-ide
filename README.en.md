@@ -57,9 +57,15 @@ install it. Marketplace releases follow the same version numbers.
 ### IDE integration
 - **Workspace = IDE project** — the project directory is adopted as a workspace and moved to
   the top before the page loads; reopening deterministically lands on the workspace with the
-  most conversations.
+  most conversations. `~/.dsh/.agent-presets` are synced at startup and a blank session is
+  prepared when needed, so the selection also wins under newer DSH releases that auto-select
+  the most recently active workspace.
+- **No external browser tab** — newer `dsh web` releases open the default browser on startup;
+  the plugin passes `--no-open` whenever the resolved runtime supports it (probed once via
+  `dsh web --help` for external installs; older dsh versions are unaffected).
 - **Open files in the IDE** — `host.openPath` is routed into the IDE via a DSH composition
-  patch (native gateway) with an automatic fallback to a TCP proxy.
+  patch (native gateway) with an automatic fallback to a TCP proxy. The `--patch` flag layout
+  follows the launcher contract of both old and new DSH releases.
 - **Native IDE diff** — when a file has VCS changes, opening it shows the IDE's side-by-side
   diff against the VCS baseline instead of the plain editor.
 - **Send selection to DSH** — editor context-menu action that starts the service if needed,
@@ -152,7 +158,7 @@ dependencies and bundles the DSH runtime from the local npx cache — run
 `npx --yes @deepseek-ai/dsh@0.1.1-rc.1 --version` once so the required DSH installation exists.
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.12.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.13.zip
 .\gradlew.bat runIde           # run a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # platform verification before publishing
 ```

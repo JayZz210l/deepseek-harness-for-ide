@@ -16,6 +16,11 @@ import java.util.UUID
  * `POST /api/<method>` with body `{type:"client-request", rpcId, method, payload}`,
  * answered by `{type:"server-response", rpcId, result:{ok, value}}`.
  *
+ * Response parsing goes through [DshJson]: a real JSON tree with field lookup
+ * anywhere in the nesting, instead of shape-specific regexes. DSH response
+ * envelopes and field nesting change between releases; tree-walking keeps this
+ * client working across those updates (see [DshJson] for the details).
+ *
  * All requests go directly to the real dsh port (bypassing the file-open proxy);
  * loopback targets always connect directly regardless of the IDE's JVM proxy.
  */
@@ -69,26 +74,24 @@ object DshApiClient {
         val workspaceId: String,
         val path: String,
         val sessionIds: List<String> = emptyList(),
+        /** ISO-8601 creation instant; the fallback recency signal for empty workspaces. */
+        val createdAt: String? = null,
     )
 
     /** `workspace.list` — returns the durable workspaces in display order. */
-    fun listWorkspaces(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): List<WorkspaceInfo> {
-        val body = post(baseUrl, "workspace.list", "{}", timeout)
-        val items = mutableListOf<WorkspaceInfo>()
-        val itemPattern = Regex("\\{[^{}]*?\"workspaceId\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
-        for (match in itemPattern.findAll(body)) {
-            val tail = body.substring(match.range.first)
-            val end = tail.indexOf('}')
-            val item = if (end >= 0) tail.substring(0, end + 1) else tail
-            val path = Regex("\"path\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
-                .find(item)?.groupValues?.get(1)?.let(::unescapeJson) ?: continue
-            val sessionIds = Regex("\"sessionIds\"\\s*:\\s*\\[([^\\]]*)\\]")
-                .find(item)?.groupValues?.get(1)
-                ?.split(',')
-                ?.mapNotNull { it.trim().trim('"').takeIf { id -> id.isNotEmpty() } }
-                ?.map(::unescapeJson)
-                ?: emptyList()
-            items += WorkspaceInfo(match.groupValues[1].let(::unescapeJson), path, sessionIds)
+    fun listWorkspaces(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): List<WorkspaceInfo> =
+        parseWorkspaceListBody(post(baseUrl, "workspace.list", "{}", timeout))
+
+    /** Parsing half of [listWorkspaces]; exposed for unit tests (pure). */
+    internal fun parseWorkspaceListBody(body: String): List<WorkspaceInfo> {
+        val root = DshJson.parse(body) ?: return emptyList()
+        val items = DshJson.findObjects(root, "workspaceId").mapNotNull { obj ->
+            val id = obj.members["workspaceId"]?.asString() ?: return@mapNotNull null
+            val path = obj.members["path"]?.asString() ?: return@mapNotNull null
+            val sessionIds = (obj.members["sessionIds"] as? DshJson.Node.Arr)?.items
+                ?.mapNotNull { it.asString() } ?: emptyList()
+            val createdAt = obj.members["createdAt"]?.asString()
+            WorkspaceInfo(id, path, sessionIds, createdAt)
         }
         return items.distinctBy { it.workspaceId }
     }
@@ -96,9 +99,11 @@ object DshApiClient {
     /** `workspace.create` — idempotently adopt an existing directory as a workspace. */
     fun createWorkspace(baseUrl: String, path: String, timeout: Duration = Duration.ofSeconds(20)): WorkspaceInfo? {
         val payload = "{\"path\":${jsonEscape(path)}}"
-        val body = post(baseUrl, "workspace.create", payload, timeout)
-        val id = Regex("\"workspaceId\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
-            .find(body)?.groupValues?.get(1)?.let(::unescapeJson) ?: return null
+        // Both the flat (older dsh) and the `{workspace:{...}, created}` (newer dsh)
+        // response shapes carry a workspaceId string somewhere in the tree.
+        val id = DshJson.parse(post(baseUrl, "workspace.create", payload, timeout))
+            ?.let { DshJson.findString(it, "workspaceId") }
+            ?: return null
         return WorkspaceInfo(id, path)
     }
 
@@ -113,37 +118,54 @@ object DshApiClient {
     }
 
     /** `session.list` — returns sessions ordered by `updatedAt` descending. */
-    fun listSessions(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): List<SessionSummary> {
-        val body = post(baseUrl, "session.list", "{}", timeout)
-        val items = mutableListOf<SessionSummary>()
-        val itemPattern = Regex("\\{[^{}]*?\"sessionId\"\\s*:\\s*\"([^\"]+)\"")
-        for (match in itemPattern.findAll(body)) {
-            val tail = body.substring(match.range.first)
-            val end = tail.indexOf('}')
-            val item = if (end >= 0) tail.substring(0, end + 1) else tail
-            val updatedAt = Regex("\"updatedAt\"\\s*:\\s*(\\d+)").find(item)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-            val running = Regex("\"running\"\\s*:\\s*(true|false)").find(item)?.groupValues?.get(1) == "true"
-            val blank = Regex("\"blank\"\\s*:\\s*(true|false)").find(item)?.groupValues?.get(1) == "true"
-            items += SessionSummary(match.groupValues[1], updatedAt, running, blank)
+    fun listSessions(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): List<SessionSummary> =
+        parseSessionListBody(post(baseUrl, "session.list", "{}", timeout))
+
+    /** Parsing half of [listSessions]; exposed for unit tests (pure). */
+    internal fun parseSessionListBody(body: String): List<SessionSummary> {
+        val root = DshJson.parse(body) ?: return emptyList()
+        val items = DshJson.findObjects(root, "sessionId").mapNotNull { obj ->
+            val id = obj.members["sessionId"]?.asString() ?: return@mapNotNull null
+            val updatedAt = (obj.members["updatedAt"] as? DshJson.Node.Num)?.toLongOrNull() ?: 0L
+            val running = (obj.members["running"] as? DshJson.Node.Bool)?.value ?: false
+            val blank = (obj.members["blank"] as? DshJson.Node.Bool)?.value ?: false
+            SessionSummary(id, updatedAt, running, blank)
         }
         return items.distinctBy { it.sessionId }.sortedByDescending { it.updatedAt }
     }
 
-    /** `session.create` with the given working directory; returns the new session id. */
-    fun createSession(baseUrl: String, cwd: String): String {
-        val payload = "{\"cwd\":${jsonEscape(cwd)}}"
+    /**
+     * `session.create` for the given workspace and working directory; returns the
+     * new session id. The workspace-scoped form (`{workspaceId}`) is what the web
+     * UI itself uses and keeps the session accounted inside the workspace; DSH
+     * accepts workspaceId OR cwd, never both, and older dsh generations that only
+     * knew `{cwd}` answer a business error to the workspace form, so the legacy
+     * cwd-only form is retried once.
+     */
+    fun createSession(baseUrl: String, workspaceId: String?, cwd: String?): String {
+        if (workspaceId != null) {
+            val payload = "{\"workspaceId\":${jsonEscape(workspaceId)}}"
+            val attempt = runCatching { post(baseUrl, "session.create", payload) }.getOrNull()
+            if (attempt != null) {
+                DshJson.parse(attempt)?.let { DshJson.findString(it, "sessionId") }?.let { return it }
+            }
+        }
+        val payload = "{\"cwd\":${jsonEscape(cwd.orEmpty())}}"
         val body = post(baseUrl, "session.create", payload)
-        val sessionId = Regex("\"sessionId\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)?.groupValues?.get(1)
+        return DshJson.parse(body)?.let { DshJson.findString(it, "sessionId") }
             ?: throw IOException("no sessionId in response: ${body.take(200)}")
-        return unescapeJson(sessionId)
     }
+
+    /** `session.create` with the given working directory; returns the new session id. */
+    fun createSession(baseUrl: String, cwd: String): String = createSession(baseUrl, null, cwd)
 
     /** `session.prompt` — queues one text message into the session. */
     fun sendPrompt(baseUrl: String, sessionId: String, text: String) {
         val content = "[{\"type\":\"text\",\"text\":${jsonEscape(text)}}]"
         val payload = "{\"sessionId\":${jsonEscape(sessionId)},\"mode\":\"queue\",\"content\":$content}"
         val body = post(baseUrl, "session.prompt", payload)
-        if (!body.contains("\"accepted\":true")) {
+        val accepted = DshJson.parse(body)?.let { DshJson.findBoolean(it, "accepted") }
+        if (accepted != true && !body.contains("\"accepted\":true")) {
             throw IOException("unexpected response: ${body.take(200)}")
         }
     }
@@ -156,8 +178,14 @@ object DshApiClient {
      */
     fun credentialConfigured(baseUrl: String, ref: String): Boolean? {
         val body = post(baseUrl, "credentials.describe", """{"refs":["$ref"]}""")
-        val pattern = Regex("\"$ref\"\\s*:\\s*\\{[^}]*?\"configured\"\\s*:\\s*(true|false)")
-        return pattern.find(body)?.groupValues?.get(1)?.toBoolean()
+        val root = DshJson.parse(body) ?: return null
+        // value.credentials.<ref> = {configured, source?, writable} — find the
+        // sub-object named after the ref, wherever the envelope nests it.
+        for ((_, view) in DshJson.namedSubObjects(root, ref)) {
+            val configured = view.members["configured"] as? DshJson.Node.Bool
+            if (configured != null) return configured.value
+        }
+        return null
     }
 
     private fun jsonEscape(value: String): String {
@@ -176,7 +204,4 @@ object DshApiClient {
         sb.append('"')
         return sb.toString()
     }
-
-    private fun unescapeJson(value: String): String =
-        value.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\/", "/")
 }

@@ -76,6 +76,12 @@ dsh web [--host <host>] [--port <port>] [--trusted-host <authority>...]
   `workspace.insertBefore`，把 IDE 项目目录幂等登记为工作区并置顶——侧边栏打开时
   工作区默认就是当前 IDE 项目，无需在工作区选择器中再选一次（失败只记日志，不影响
   手动选择）。
+- **0.1.13 起**：工作区自动选中同时覆盖新旧两种 DSH 策略——置顶（旧版按列表首位）
+  与「预置空白会话」（新版按最近活跃：目标工作区最近活跃度落后时创建一个空白会话，
+  Web 前端选中该工作区时直接复用这个会话）。同版本起启动时自动把
+  `~/.dsh/.agent-presets` 单向同步进隔离 home：`settings.yaml` 引用的预设缺失会让
+  `session.create` 全部失败（`agent-preset-not-found`），表现为侧边栏完全无法选择
+  工作区。细节见 §7。
 
 ## 3. 插件分层
 
@@ -118,13 +124,15 @@ dsh web [--host <host>] [--port <port>] [--trusted-host <authority>...]
   组装 `cmd.exe /c`（Windows）或 `/bin/sh -c`（其他平台）→
   spawn → 双线程泵取 stdout/stderr → 正则捕获 URL（90s 超时）→ HTTP 健康轮询
   （45s 超时）→ 发布 `RUNNING(url)` → 注册 `process.onExit` 看门狗；
-- 发布 `RUNNING` 前**同步**执行工作区登记：`workspace.list` / `workspace.create` /
-  `workspace.insertBefore` 把 IDE 项目目录幂等登记为工作区并置顶。必须在浏览器加载
-  之前完成——web 前端只对首次基线做一次性初始工作区选择（`startInitialSelection`，
-  基线时无 workspace 即永久放弃），晚到的 workspace 不会被自动选中，界面会停留在
-  空的"选择工作区"；失败只记日志，不影响手动选择。发布 `RUNNING` 后异步执行
-  `credentials.describe` 预检 DeepSeek API Key（缺失弹窗）；服务重启/停止时把内嵌
-  浏览器页面标记为脏，下一次 RUNNING 即使 URL 相同也强制重载；
+- 发布 `RUNNING` 前**同步**执行工作区登记：先单向同步 `~/.dsh/.agent-presets`
+  （0.1.13 起，settings 引用的预设缺失会让 session.create 全挂），再
+  `workspace.list` / `workspace.create` / `workspace.insertBefore` 把 IDE 项目目录
+  幂等登记为工作区并置顶，必要时预置空白会话（覆盖新版「最近活跃」选中策略）。
+  必须在浏览器加载之前完成——web 前端只对首次基线做一次性初始工作区选择
+  （`startInitialSelection`，基线时无 workspace 即永久放弃），晚到的 workspace 不会被
+  自动选中，界面会停留在空的"选择工作区"；失败只记日志，不影响手动选择。发布
+  `RUNNING` 后异步执行 `credentials.describe` 预检 DeepSeek API Key（缺失弹窗）；
+  服务重启/停止时把内嵌浏览器页面标记为脏，下一次 RUNNING 即使 URL 相同也强制重载；
 - 看门狗：非主动停止的退出 → `FAILED`；开启自动重启时 2s 后自动拉起；
 - `stop`：Windows 用 `taskkill /T /F` 杀进程树，其余平台 destroy/destroyForcibly；
 - 项目关闭：`dispose()` 停止进程（每个项目一个实例）；
@@ -159,7 +167,48 @@ dsh web [--host <host>] [--port <port>] [--trusted-host <authority>...]
   内置 node（若启用），并区分“未安装”与“版本低于 18”。同样按平台分发；
   上架 Marketplace 前应把 Node.js 的 LICENSE 放进构建来源目录或写进商店描述；
 
-## 7. 路线图（第二阶段）
+## 7. DSH 频繁更新的兼容策略（0.1.13 起）
+
+DSH 更新很快，且插件需要同时支持内置（版本钉死）与外部（任意版本）运行时。
+0.1.13 修复的两个事故（启动弹外部浏览器、工作区无法选择）都源于对 DSH 行为的
+**隐式假设**：假设 web 子命令不打开浏览器、假设 `--patch` 可以插在 `--host` 之后、
+假设 Web 前端按列表顺序选择初始工作区、假设隔离 home 只需继承凭据与 settings。
+本节把每一条假设替换为可跨版本存活的做法：
+
+1. **CLI 契约：launcher 旗标先于一切应用参数**。DSH launcher 在自己的旗标
+   （`--patch`、`--profile` 等）结束后把剩余参数原样交给应用，`--host`/`--port`
+   对 launcher 是未知参数。因此 `--patch <file>` 必须**紧跟 `web` 子命令**；
+   插在 `--host` 之后会被新版 launcher 当作应用参数 → `too many arguments` 启动失败。
+   该布局由纯函数 `DshWebLaunch.buildTokens` 统一生成，并有单元测试锁定。
+2. **能力探测优先于版本判断**。`--no-open` 是否存在不查版本号，而是跑一次
+   `dsh web --help`（只解析帮助文本、不启动服务，且对隔离 DSH_HOME 执行、绝不触碰
+   主 home），按输出是否含 `--no-open` 决定是否传参；结果按项目会话缓存。内置运行时
+   版本由插件钉死，直接跳过探测。探测失败/超时一律**保守不传**：旧版 dsh 拒绝未知
+   旗标，而旧版本来就不会自动开浏览器，保守方向不会制造回归。
+3. **Wire 解析对嵌套不敏感**。`DshApiClient` 不再用形状相关的正则解析响应，而是用
+   最小 JSON 解析树（`DshJson`，纯 JDK）在**任意深度**查找字段（`workspaceId`、
+   `sessionId`、`configured`…）。DSH 曾把 `workspace.create` 的返回值包进 `workspace`
+   对象、给 `session.list` 条目加入 `projections` 嵌套对象；树遍历对这些变化天然免疫。
+4. **工作区选中覆盖两种策略**。旧版 Web 前端按列表首位自动选工作区，新版按「最近
+   活跃」（成员会话 `updatedAt` 最大，空工作区回退 `createdAt`）。插件对目标工作区
+   同时满足两者：置顶（旧策略）+ 必要时预置一个空白会话（新策略——空白会话的
+   `updatedAt` 即当下，Web 前端打开该工作区时还会**复用**这个空白会话，不产生垃圾）。
+   最近活跃规则镜像在纯函数 `DshWorkspacePolicy` 中，有测试锁定，DSH 再改策略时只需
+   扩展该策略对象。
+5. **隔离 home 的继承面补齐**。继承 `settings.yaml` 时其中引用的 Agent 预设
+   （如锚定 persona）必须同时存在，否则每次 `session.create` 都报
+   `agent-preset-not-found`、界面无法选择任何工作区（0.1.13 事故根因）。现在启动时
+   自动把 `~/.dsh/.agent-presets` **单向**同步进隔离 home（幂等、失败仅记日志），
+   手动「同步预设」按钮保留用于运行中再同步。
+6. **启动失败保留回退阶梯**。组合层补丁启动失败 → 自动以无补丁 + TCP 代理重试一次；
+   再失败 → FAILED 状态卡 + 完整进程日志。任一阶梯失败都不弹外部浏览器、不丢日志。
+
+原则总结：**凡是 DSH 可能改变的行为（旗标、响应形状、选择策略、home 内容），插件
+要么探测、要么同时覆盖新旧两种语义、要么把解析做成结构不敏感**；并在改动 DSH
+运行时版本时按「内置 0.1.1-rc.1 / 外部 npx 0.1.0-rc.6 / 最新源码树」三档分别做
+启动 + workspace/session API 冒烟验证。
+
+## 8. 路线图（第二阶段）
 
 已实现（v0.2.0 → v0.4.0）：
 

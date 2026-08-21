@@ -52,9 +52,12 @@
 
 ### IDE 深度集成
 - **工作区 = IDE 项目**——页面加载前就把项目目录登记为工作区并置顶；重开工程时确定性
-  落在会话最多的那个工作区，历史对话不散落；
+  落在会话最多的那个工作区，历史对话不散落；启动时自动同步 `~/.dsh/.agent-presets`
+  并在必要时预置空白会话，兼容新版 DSH「最近活跃」的工作区自动选中策略；
+- **不弹外部网页**——新版 `dsh web` 默认拉起系统浏览器，插件按运行时能力自动传
+  `--no-open`（外部 dsh 用一次性的 `web --help` 探测，旧版 dsh 不受影响）；
 - **文件跳转到 IDE**——界面里的"打开文件"直接落到 IDE 编辑器（DSH 组合层原生网关实现，
-  启动失败自动回退 TCP 代理）；
+  启动失败自动回退 TCP 代理；`--patch` 参数布局兼容新旧 DSH 启动器）；
 - **IDE 原生 Diff**——文件有 VCS 改动时，打开的是 IDE 并排 Diff（对比 VCS 基线），
   而不是普通编辑器；
 - **编辑器选区直发**——右键把选中代码（或当前行）作为消息发给 DSH，自动启动服务、
@@ -139,7 +142,7 @@
 DSH 运行时——请先跑一次 `npx --yes @deepseek-ai/dsh@0.1.1-rc.1 --version` 保证有可用安装。
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.12.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.13.zip
 .\gradlew.bat runIde           # 带插件的沙箱 IDE 调试
 .\gradlew.bat verifyPlugin     # 上架前的平台验证
 ```

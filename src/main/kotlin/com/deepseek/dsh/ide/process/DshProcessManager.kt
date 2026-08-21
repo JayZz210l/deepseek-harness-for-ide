@@ -77,6 +77,12 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Guards the one-time native→proxy fallback retry inside [startInternal]. */
     private var nativeRetryDepth = 0
 
+    /** Guards the one-shot `--no-open` capability probe for external dsh runtimes. */
+    private var noOpenProbeDone = false
+
+    /** Result of the `--no-open` capability probe; only meaningful once [noOpenProbeDone] is true. */
+    private var noOpenSupported = false
+
     /** Guards the plugin-sync entry point against duplicate clicks while one sync is queued/running. */
     @Volatile
     private var pluginSyncQueued = false
@@ -219,7 +225,31 @@ class DshProcessManager(private val project: Project) : Disposable {
             return
         }
 
-        val baseTokens = buildTokens(settings, nodeResolution.executable)
+        // Isolate the plugin instance's DSH home by default: a second `dsh web` on the
+        // user's main ~/.dsh is not multi-instance safe and previously interfered with
+        // the standalone web UI (mixed workspaces, orphaned sessions, re-bootstrapped
+        // config). Blank now resolves to a per-project home seeded one-way from the
+        // main home; "default" keeps the old inherit-the-environment behavior.
+        // Resolved BEFORE the token build: the `--no-open` capability probe runs the
+        // resolved command against this same isolated home, so the probe never touches
+        // the user's main DSH home.
+        val dshHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+        if (dshHome != null) {
+            DshHomePolicy.seedHome(Paths.get(dshHome), ::addLog)
+        }
+
+        val commandResolution = resolveCommandTokens(settings, nodeResolution.executable)
+        val baseTokens = DshWebLaunch.buildTokens(
+            resolvedCommand = commandResolution.tokens,
+            host = settings.host,
+            port = settings.port,
+            patchFile = null,
+            // The current `dsh web` opens the default browser once ready; the embedded
+            // JCEF browser is the UI, so suppress the external tab whenever the resolved
+            // runtime supports the flag (bundled runtime always does; external runtimes
+            // are probed once via `dsh web --help`).
+            noOpen = supportsNoOpen(commandResolution, dshHome),
+        )
         val mode = settings.fileJumpMode.ifBlank { "auto" }
 
         // ── Native (composition patch) preparation ────────────────────────────────────────────────
@@ -241,13 +271,19 @@ class DshProcessManager(private val project: Project) : Disposable {
                 runCatching { bridge.start() }
                 if (bridge.baseUrl.isNotEmpty()) {
                     ideBridge = bridge
-                    // The launcher rejects parent-level --patch before the `web`
-                    // subcommand; the web subcommand owns its own --patch option, so it
-                    // must come AFTER `web` (baseTokens = [cmd, web, --host, ..., --port, ...]).
-                    finalTokens.add(3, "--patch")
-                    finalTokens.add(4, patchFile.toString())
-                    nativeActive = true
-                    addLog(DshBundle.message("dsh.proc.nativeActive", patchFile, bridge.baseUrl))
+                    // Launcher flags must end at the first unknown token, so
+                    // `--patch <file>` goes IMMEDIATELY after `web`, before any
+                    // `--host`/`--port` inner argument. The previous layout
+                    // (`web --host --patch <file> 127.0.0.1 ...`) was parsed as
+                    // web-app arguments by current launchers and failed every
+                    // boot with "too many arguments".
+                    val webIndex = finalTokens.indexOf("web")
+                    if (webIndex >= 0) {
+                        finalTokens.add(webIndex + 1, "--patch")
+                        finalTokens.add(webIndex + 2, patchFile.toString())
+                        nativeActive = true
+                        addLog(DshBundle.message("dsh.proc.nativeActive", patchFile, bridge.baseUrl))
+                    }
                 }
             }
             if (!nativeActive) {
@@ -260,14 +296,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         project.basePath?.let { base ->
             runCatching { pb.directory(File(base)) }
         }
-        // Isolate the plugin instance's DSH home by default: a second `dsh web` on the
-        // user's main ~/.dsh is not multi-instance safe and previously interfered with
-        // the standalone web UI (mixed workspaces, orphaned sessions, re-bootstrapped
-        // config). Blank now resolves to a per-project home seeded one-way from the
-        // main home; "default" keeps the old inherit-the-environment behavior.
-        val dshHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
         if (dshHome != null) {
-            DshHomePolicy.seedHome(Paths.get(dshHome), ::addLog)
             pb.environment()["DSH_HOME"] = dshHome
             addLog(DshBundle.message("dsh.proc.home", dshHome))
         }
@@ -359,6 +388,11 @@ class DshProcessManager(private val project: Project) : Disposable {
         // stuck on the empty "choose workspace" hero). The browser only loads after
         // RUNNING is published below, so doing this synchronously on the lifecycle
         // thread with short timeouts removes the race; failures only log.
+        // Agent presets are synced first: the isolated home inherits the main home's
+        // settings.yaml, which may name a preset (e.g. an anchored persona) that only
+        // exists in the main home — without it every session.create fails and the web
+        // UI cannot select any workspace at all.
+        syncAgentPresetsForStartup()
         ensureProjectWorkspace(url)
 
         DshUsageStats.getInstance().recordStart()
@@ -704,16 +738,12 @@ class DshProcessManager(private val project: Project) : Disposable {
     // Command building
     // ---------------------------------------------------------------------------------------------
 
-    private fun buildTokens(settings: DshSettingsState.Settings, nodeExecutable: String?): List<String> {
-        val resolved = resolveCommandTokens(settings, nodeExecutable)
-        val tokens = (if (resolved.isEmpty()) mutableListOf(settings.dshCommand.trim()) else resolved.toMutableList())
-        tokens += "web"
-        tokens += listOf("--host", settings.host.trim().ifBlank { "127.0.0.1" })
-        // Always pass --port explicitly: the shipped web profile defaults to 3080, which
-        // conflicts with any already-running dsh web instance. 0 = let the OS pick a port.
-        val port = settings.port.coerceIn(0, 65535)
-        tokens += listOf("--port", port.toString())
-        return tokens
+    /** How the configured dsh command resolved; decides `--no-open` probing. */
+    data class CommandResolution(
+        val tokens: List<String>,
+        val source: Source,
+    ) {
+        enum class Source { EXPLICIT, PATH, BUNDLED, NPX_BIN_JS, NPX_SHIM, UNRESOLVED }
     }
 
     /**
@@ -724,17 +754,23 @@ class DshProcessManager(private val project: Project) : Disposable {
      * - when nothing is on PATH, the npm/npx caches are searched: `node <cached bin.js>` is
      *   preferred (no shim quoting pitfalls), the npx `dsh.cmd` shim is the last resort.
      */
-    private fun resolveCommandTokens(settings: DshSettingsState.Settings, nodeExecutable: String?): List<String> {
+    private fun resolveCommandTokens(settings: DshSettingsState.Settings, nodeExecutable: String?): CommandResolution {
         val parsed = parseCommandTokens(settings.dshCommand)
-        if (parsed.isEmpty()) return emptyList()
+        val fallback = CommandResolution(
+            if (parsed.isEmpty()) mutableListOf(settings.dshCommand.trim()) else parsed,
+            CommandResolution.Source.UNRESOLVED,
+        )
+        if (parsed.isEmpty()) return fallback
         val exe = parsed.first()
         val tail = parsed.drop(1)
 
-        if (looksLikeExplicitPath(exe)) return parsed
+        if (looksLikeExplicitPath(exe)) {
+            return CommandResolution(parsed, CommandResolution.Source.EXPLICIT)
+        }
 
         findOnPath(exe)?.let { found ->
             addLog(DshBundle.message("dsh.proc.locating", found))
-            return listOf(found) + tail
+            return CommandResolution(listOf(found) + tail, CommandResolution.Source.PATH)
         }
 
         // Bundled runtime: the plugin ships its own copy of DeepSeek Harness, so a
@@ -744,7 +780,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         if (bundledBinJs != null) {
             if (nodeExecutable != null) {
                 addLog(DshBundle.message("dsh.proc.locatingBundled", DshBundledRuntime.version() ?: "?"))
-                return listOf(nodeExecutable, bundledBinJs.toString()) + tail
+                return CommandResolution(listOf(nodeExecutable, bundledBinJs.toString()) + tail, CommandResolution.Source.BUNDLED)
             }
             addLog(DshBundle.message("dsh.proc.bundledNeedsNode"))
         }
@@ -753,17 +789,75 @@ class DshProcessManager(private val project: Project) : Disposable {
         if (binJs != null) {
             if (nodeExecutable != null) {
                 addLog(DshBundle.message("dsh.proc.locatingNpx", nodeExecutable, binJs))
-                return listOf(nodeExecutable, binJs) + tail
+                return CommandResolution(listOf(nodeExecutable, binJs) + tail, CommandResolution.Source.NPX_BIN_JS)
             }
         }
 
         findNpxShim()?.let { shim ->
             addLog(DshBundle.message("dsh.proc.locatingShim", shim))
-            return listOf(shim) + tail
+            return CommandResolution(listOf(shim) + tail, CommandResolution.Source.NPX_SHIM)
         }
 
         addLog(DshBundle.message("dsh.proc.locatingMissing"))
-        return parsed
+        return fallback
+    }
+
+    /**
+     * Whether the resolved runtime accepts `dsh web --no-open`.
+     *
+     * The plugin pins the bundled runtime version, so its capability is known at
+     * build time. An external runtime (PATH/npx) may be any DSH release, so its
+     * support is probed ONCE per project session: `dsh web --help` prints the web
+     * app's flag family, which names `--no-open` exactly when the flag exists.
+     * The probe only parses help text — it never starts a server — and runs
+     * against the isolated DSH home so the user's main home stays untouched.
+     * A probe failure errs toward NOT passing the flag: an older runtime that
+     * rejects unknown flags must keep booting, and older releases never opened
+     * the default browser anyway.
+     */
+    private fun supportsNoOpen(resolution: CommandResolution, dshHome: String?): Boolean {
+        if (resolution.source == CommandResolution.Source.BUNDLED) return true
+        if (!noOpenProbeDone) {
+            noOpenProbeDone = true
+            noOpenSupported = probeNoOpen(resolution, dshHome)
+            addLog(
+                DshBundle.message(
+                    if (noOpenSupported) "dsh.proc.noOpenSupported" else "dsh.proc.noOpenUnsupported",
+                    resolution.tokens.joinToString(" "),
+                )
+            )
+        }
+        return noOpenSupported
+    }
+
+    /** One-shot `dsh web --help` probe; returns true when the help names `--no-open`. */
+    private fun probeNoOpen(resolution: CommandResolution, dshHome: String?): Boolean {
+        val probeTokens = DshWebLaunch.helpProbeTokens(resolution.tokens)
+        val pb = ProcessBuilder(platformCommand(probeTokens))
+        if (dshHome != null) pb.environment()["DSH_HOME"] = dshHome
+        pb.redirectErrorStream(true)
+        val output = StringBuilder()
+        return try {
+            val process = pb.start()
+            val pump = Thread {
+                runCatching {
+                    process.inputStream.bufferedReader(StandardCharsets.UTF_8).forEachLine { line ->
+                        if (output.length < 128 * 1024) output.appendLine(line)
+                    }
+                }
+            }
+            pump.isDaemon = true
+            pump.start()
+            val finished = process.waitFor(30, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                return false
+            }
+            output.toString().contains("--no-open")
+        } catch (error: Exception) {
+            addLog(DshBundle.message("dsh.proc.noOpenProbeFailed", error.message ?: error.javaClass.simpleName))
+            false
+        }
     }
 
     /** Splits a user command string into tokens, honoring double quotes. */
@@ -1071,6 +1165,13 @@ class DshProcessManager(private val project: Project) : Disposable {
      * when no project-scoped workspace exists at all. The chosen workspace is moved
      * to the front. Runs synchronously on the lifecycle thread BEFORE the browser
      * loads; failures only log.
+     *
+     * Selection policies differ between DSH releases, so the workspace is made the
+     * auto-selected one under BOTH known rules: the list-front move covers releases
+     * that select the first workspace, and a fresh blank session in the target
+     * workspace covers releases that select the most recently active one (its
+     * `updatedAt` is now — the web UI then reuses exactly that blank session when
+     * it opens the workspace). See [DshWorkspacePolicy] for the recency rule.
      */
     private fun ensureProjectWorkspace(baseUrl: String) {
         if (disposed.get()) return
@@ -1079,6 +1180,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         try {
             val workspaces = DshApiClient.listWorkspaces(baseUrl, shortTimeout)
             val scoped = workspaces.filter { sameOrUnder(it.path, base) }
+            val sessions = DshApiClient.listSessions(baseUrl, shortTimeout)
 
             val target: DshApiClient.WorkspaceInfo?
             if (scoped.isEmpty()) {
@@ -1086,10 +1188,7 @@ class DshProcessManager(private val project: Project) : Disposable {
             } else if (scoped.size == 1) {
                 target = scoped.first()
             } else {
-                val nonBlank = DshApiClient.listSessions(baseUrl, shortTimeout)
-                    .filter { !it.blank }
-                    .map { it.sessionId }
-                    .toHashSet()
+                val nonBlank = sessions.filter { !it.blank }.map { it.sessionId }.toHashSet()
                 target = scoped.maxWithOrNull(compareBy(
                     { ws -> ws.sessionIds.count { it in nonBlank } },
                     { ws -> if (sameDirectoryPath(ws.path, base)) 1 else 0 },
@@ -1115,9 +1214,54 @@ class DshProcessManager(private val project: Project) : Disposable {
             } else {
                 addLog(DshBundle.message("dsh.proc.workspaceCanonical", target.path))
             }
+
+            // Recency-policy selection (current releases): a blank session is only
+            // minted when the target is NOT already the activity-most-recent workspace,
+            // so repeated project opens never accumulate blank sessions.
+            if (DshWorkspacePolicy.needsBlankSessionBump(workspaces, sessions, target)) {
+                runCatching {
+                    // Workspace-scoped create: keeps the session accounted inside the
+                    // workspace, exactly like the web UI's own New Session flow; older
+                    // dsh generations fall back to a cwd-only create inside the client.
+                    DshApiClient.createSession(baseUrl, target.workspaceId, target.path)
+                }.onSuccess {
+                    addLog(DshBundle.message("dsh.proc.workspaceBlankSession"))
+                }.onFailure { error ->
+                    addLog(DshBundle.message("dsh.proc.workspaceBlankFailed", error.message ?: error.javaClass.simpleName))
+                }
+            }
         } catch (error: Exception) {
             addLog(DshBundle.message("dsh.proc.workspaceFailedDetail", error.message ?: error.javaClass.simpleName))
             log.warn("DeepSeek Harness workspace adoption failed", error)
+        }
+    }
+
+    /**
+     * One-way copy of the main home's locally authored agent presets into this
+     * project's isolated home, BEFORE the web UI loads. The seeded settings.yaml
+     * can name a preset (e.g. an anchored persona preset) that only exists in the
+     * main home; without it, EVERY `session.create` fails with
+     * `agent-preset-not-found` and the web UI cannot select any workspace. Runs on
+     * the lifecycle thread with the usual failure-only-log contract; idempotent
+     * (byte-compare per file) so the manual sync button stays available for
+     * mid-session edits.
+     */
+    private fun syncAgentPresetsForStartup() {
+        if (disposed.get()) return
+        try {
+            val settings = DshSettingsState.getInstance().current
+            val targetHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            val mainHome = DshHomePolicy.mainHome()
+            if (targetHome == null || sameDirectoryPath(targetHome, mainHome.toString())) return
+            if (!DshPresetSync.hasPresets(mainHome)) return
+            val result = DshPresetSync.sync(mainHome, Paths.get(targetHome)) { addLog(it) }
+            if (result.error != null) {
+                addLog(DshBundle.message("dsh.proc.presetSyncFailed", result.error))
+            } else if (result.changed) {
+                addLog(DshBundle.message("dsh.proc.presetsSynced", mainHome.toString()))
+            }
+        } catch (error: Exception) {
+            addLog(DshBundle.message("dsh.proc.presetSyncFailed", error.message ?: error.javaClass.simpleName))
         }
     }
 

@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.12</version>
+    <version>0.1.13</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.13 — 修复新版 DSH 引入的两个问题：启动时自动弹出外部浏览器（现在按运行时能力传 --no-open，外部 dsh 用一次性的 web --help 探测）；修正 --patch 参数位置（紧跟 web 子命令，新旧启动器均正确解析）。修复侧边栏无法选择工作区：启动时自动单向同步 ~/.dsh/.agent-presets（settings.yaml 引用的锚定 persona 等预设缺失曾导致 session.create 全部失败），并在必要时为目标工作区预置空白会话，兼容「列表首位」与「最近活跃」两种工作区自动选中策略。DSH API 响应改用嵌套不敏感的 JSON 解析树。</p>
       <p>0.1.12 — 内置 DeepSeek Harness 从 0.1.0-rc.6 升级到 0.1.1-rc.1；构建时固定并校验 DSH 运行时版本，避免安装包误带旧缓存。</p>
       <p>0.1.11 — 修复 JetBrains Marketplace 兼容性验证问题：移除全部 PluginManager 内部 API 调用，改用公开的 PluginAwareClassLoader 接口，并为 2026.2 的可选 JCEF 模块补齐独立配置文件，兼容 2024.3–2026.2。</p>
       <p>0.1.10 — 修复 Node.js 已安装但 IDE 误报未检测到：Windows 下实时读取当前用户/系统 PATH，实际执行 node --version 校验 18+，并把 Node 目录注入 DSH 子进程；同时合入 Windows 用户名含单引号时的 patch.yml 修复及 PyCharm 2026.2/JCEF 兼容支持。</p>
