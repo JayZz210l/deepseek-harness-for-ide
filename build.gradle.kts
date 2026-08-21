@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.11"
+version = "0.1.12"
 
 repositories {
     mavenCentral()
@@ -100,8 +100,16 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
+val bundledDshVersion = "0.1.1-rc.1"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
+
+fun readDshRuntimeVersion(root: File): String? {
+    val manifest = File(root, "node_modules/@deepseek-ai/dsh/package.json")
+    if (!manifest.isFile) return null
+    return Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
+        .find(manifest.readText())?.groupValues?.get(1)
+}
 
 fun findDshRuntimeRoot(): File? {
     val candidates = mutableListOf<File>()
@@ -112,7 +120,7 @@ fun findDshRuntimeRoot(): File? {
     for (root in candidates) {
         for (dir in root.listFiles { f -> f.isDirectory } ?: emptyArray()) {
             val anchor = File(dir, "node_modules/@deepseek-ai/dsh/package.json")
-            if (anchor.isFile && anchor.lastModified() > bestTime) {
+            if (readDshRuntimeVersion(dir) == bundledDshVersion && anchor.lastModified() > bestTime) {
                 bestTime = anchor.lastModified()
                 best = dir
             }
@@ -125,10 +133,22 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
     if (!skipDshRuntime) {
         val sourceRoot: File? = dshRuntimeSourcePath?.let(::File) ?: findDshRuntimeRoot()
         val root: File = sourceRoot ?: throw GradleException(
-            "bundleDshRuntime: no dsh installation found. Run `npx @deepseek-ai/dsh` once to populate " +
+            "bundleDshRuntime: no dsh $bundledDshVersion installation found. " +
+                "Run `npx --yes @deepseek-ai/dsh@$bundledDshVersion --version` to populate " +
                 "the npx cache, pass -PdshRuntimePath=<dir containing node_modules>, or skip bundling " +
                 "with -PskipDshRuntime=true."
         )
+        val runtimeVersion = readDshRuntimeVersion(root)
+            ?: throw GradleException(
+                "bundleDshRuntime: ${root.absolutePath} does not contain " +
+                    "node_modules/@deepseek-ai/dsh/package.json."
+            )
+        if (runtimeVersion != bundledDshVersion) {
+            throw GradleException(
+                "bundleDshRuntime: expected dsh $bundledDshVersion, found $runtimeVersion " +
+                    "in ${root.absolutePath}."
+            )
+        }
         from(File(root, "node_modules")) {
             into("dsh-runtime/node_modules")
             // npm bin shims, source maps, docs and TypeScript sources are never needed at runtime.
@@ -142,10 +162,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
         // a change re-runs the copy instead of being skipped as UP-TO-DATE.
         inputs.dir(project.file("src/main/resources/dsh/ide-settings"))
         doLast {
-            val manifestText = File(root, "node_modules/@deepseek-ai/dsh/package.json").readText()
-            val version = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
-                .find(manifestText)?.groupValues?.get(1) ?: "unknown"
-            destinationDir.resolve("dsh-runtime/version.txt").writeText("$version\n")
+            destinationDir.resolve("dsh-runtime/version.txt").writeText("$runtimeVersion\n")
 
             // Client settings package: the "For IDE" section in the web UI settings page.
             // Shipped as a real package under the runtime's node_modules (the client-module

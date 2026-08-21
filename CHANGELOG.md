@@ -2,6 +2,12 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.12
+
+- 内置 DeepSeek Harness 从 `0.1.0-rc.6` 升级到官方 `0.1.1-rc.1`；
+- 构建脚本固定并校验 DSH 运行时版本，拒绝把本机 npx 缓存中的旧版本误打进安装包；
+- 保持 JetBrains IDE 兼容范围为 2024.3–2026.2（build 243–262.*）。
+
 ## 0.1.11
 
 - 移除全部 `PluginManager` 内部 API 调用：插件版本统一从构建时生成的

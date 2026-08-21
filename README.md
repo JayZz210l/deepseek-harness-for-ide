@@ -136,10 +136,10 @@
 ## 本地构建
 
 前置：JDK 17+（推荐 21/22）。首次构建会下载 IntelliJ 平台依赖，并从本机 npx 缓存打包
-DSH 运行时——请先跑一次 `npx @deepseek-ai/dsh` 保证有可用安装。
+DSH 运行时——请先跑一次 `npx --yes @deepseek-ai/dsh@0.1.1-rc.1 --version` 保证有可用安装。
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.11.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.12.zip
 .\gradlew.bat runIde           # 带插件的沙箱 IDE 调试
 .\gradlew.bat verifyPlugin     # 上架前的平台验证
 ```
