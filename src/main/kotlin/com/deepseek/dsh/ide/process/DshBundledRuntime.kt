@@ -1,7 +1,6 @@
 package com.deepseek.dsh.ide.process
 
-import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.openapi.extensions.PluginId
+import com.intellij.ide.plugins.PluginManager
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -20,7 +19,6 @@ import java.nio.file.Path
  */
 object DshBundledRuntime {
 
-    private const val PLUGIN_ID = "com.deepseek.dsh.ide"
     private const val BIN_JS = "node_modules/@deepseek-ai/dsh/lib/bin.js"
 
     /**
@@ -29,7 +27,7 @@ object DshBundledRuntime {
      * for robustness against older descriptors.
      */
     fun pluginDir(): Path? {
-        val raw: Any? = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.pluginPath ?: return null
+        val raw: Any? = PluginManager.getPluginByClass(DshBundledRuntime::class.java)?.pluginPath ?: return null
         return when (raw) {
             is Path -> raw
             is java.io.File -> raw.toPath()

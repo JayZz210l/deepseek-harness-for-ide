@@ -15,6 +15,9 @@ object DshBuildInfo {
         Properties().apply { load(input) }
     }
 
+    /** Plugin version baked into this jar, or null when unavailable. */
+    fun version(): String? = load()?.getProperty("version")
+
     /** ISO build date of this plugin jar, or null when unavailable. */
     fun buildDate(): String? = load()?.getProperty("buildDate")
 }

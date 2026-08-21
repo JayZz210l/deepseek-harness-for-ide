@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.10</version>
+    <version>0.1.11</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.11 — 修复 JetBrains Marketplace 兼容性验证问题：移除 4 处 PluginManagerCore 内部 API 调用，并为 2026.2 的可选 JCEF 模块补齐独立配置文件，兼容 2024.3–2026.2。</p>
       <p>0.1.10 — 修复 Node.js 已安装但 IDE 误报未检测到：Windows 下实时读取当前用户/系统 PATH，实际执行 node --version 校验 18+，并把 Node 目录注入 DSH 子进程；同时合入 Windows 用户名含单引号时的 patch.yml 修复及 PyCharm 2026.2/JCEF 兼容支持。</p>
       <p>0.1.9 — 插件管理：DSH 设置页「For IDE」栏目新增「同步插件 / 同步预设 / 恢复默认插件」按钮——把外部终端安装到 ~/.dsh 的插件与预设一键带入当前 IDE 项目（含 pnpm 安装、失败回滚与同步过程温馨提示），或一键恢复出厂默认插件配置。</p>
       <p>0.1.8 — 全新插件图标：插件图标与工具窗口图标更新为 DeepSeek 风格新设计，README 图标同步更新。</p>
@@ -43,7 +44,7 @@
     <depends>com.intellij.modules.platform</depends>
     <!-- PyCharm 2026.2 (262) split JCEF into its own module; without this the
          tool window fails with NoClassDefFoundError: com.intellij.ui.jcef.JBCefApp -->
-    <depends optional="true">com.intellij.modules.jcef</depends>
+    <depends optional="true" config-file="com.deepseek.dsh.ide-jcef.xml">com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="com.deepseek.dsh.ide.settings.DshSettingsState"/>

@@ -1,6 +1,7 @@
 package com.deepseek.dsh.ide.ui
 
 import com.deepseek.dsh.ide.i18n.DshBundle
+import com.deepseek.dsh.ide.process.DshBuildInfo
 import com.deepseek.dsh.ide.process.DshProcessManager
 import com.deepseek.dsh.ide.process.DshServerState
 import com.deepseek.dsh.ide.process.DshServerStatus
@@ -387,11 +388,7 @@ class DshToolWindowPanel(private val project: Project) {
             }
         }
 
-        private fun pluginVersion(): String = runCatching {
-            com.intellij.ide.plugins.PluginManagerCore.getPlugin(
-                com.intellij.openapi.extensions.PluginId.getId("com.deepseek.dsh.ide")
-            )?.version ?: "?"
-        }.getOrDefault("?")
+        private fun pluginVersion(): String = DshBuildInfo.version() ?: "?"
 
         private fun formatTime(epochMs: Long): String =
             if (epochMs <= 0) DshBundle.message("dsh.stats.never")

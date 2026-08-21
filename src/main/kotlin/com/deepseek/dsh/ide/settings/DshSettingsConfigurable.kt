@@ -5,10 +5,8 @@ import com.deepseek.dsh.ide.process.DshBundledRuntime
 import com.deepseek.dsh.ide.process.DshBuildInfo
 import com.deepseek.dsh.ide.process.DshHomePolicy
 import com.deepseek.dsh.ide.ui.DshFeedback
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.ui.ComboBox
@@ -122,9 +120,7 @@ class DshSettingsConfigurable : Configurable {
         }
     }
 
-    private fun pluginVersion(): String = runCatching {
-        PluginManagerCore.getPlugin(PluginId.getId("com.deepseek.dsh.ide"))?.version ?: "?"
-    }.getOrDefault("?")
+    private fun pluginVersion(): String = DshBuildInfo.version() ?: "?"
 
     override fun isModified(): Boolean {
         val s = DshSettingsState.getInstance().current

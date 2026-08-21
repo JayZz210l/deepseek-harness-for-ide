@@ -1,0 +1,6 @@
+<!--
+  Declares the optional JCEF class-loader dependency used by 262+ IDEs where
+  JCEF is split into its own module. No extensions are conditional on JCEF:
+  the tool window checks JBCefApp.isSupported() and provides its own fallback.
+-->
+<idea-plugin/>

@@ -8,14 +8,12 @@ import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.actions.RevealFileAction
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
@@ -1046,9 +1044,7 @@ class DshProcessManager(private val project: Project) : Disposable {
      */
     private fun showUpdateNotice() {
         if (disposed.get()) return
-        val version = runCatching {
-            PluginManagerCore.getPlugin(PluginId.getId("com.deepseek.dsh.ide"))?.version
-        }.getOrNull() ?: return
+        val version = DshBuildInfo.version() ?: return
         val settings = DshSettingsState.getInstance().current
         if (settings.lastUpdateNoticeVersion == version) return
         settings.lastUpdateNoticeVersion = version
