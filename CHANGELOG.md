@@ -4,12 +4,12 @@ Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.
 
 ## 0.1.11
 
-- 移除 4 处 `PluginManagerCore.getPlugin()` 内部 API 调用：插件版本统一从
-  构建时生成的元数据读取，安装目录改用公开 `PluginManager` API；
+- 移除全部 `PluginManager` 内部 API 调用：插件版本统一从构建时生成的
+  元数据读取，安装目录通过公开 `PluginAwareClassLoader` 接口获取；
 - 为 `com.intellij.modules.jcef` 可选依赖补齐 `config-file` 及独立描述文件，
   保留 2026.2 拆分 JCEF 模块后的类加载器依赖，同时不影响没有该模块的
   2024.3–2026.1 IDE；
-- 消除 JetBrains Marketplace 插件验证器报告的 4 个内部 API 用法和
+- 消除 JetBrains Marketplace 插件验证器报告的所有内部 API 用法和
   1 个插件配置缺陷。
 
 ## 0.1.10

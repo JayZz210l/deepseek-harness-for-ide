@@ -1,8 +1,10 @@
 package com.deepseek.dsh.ide.process
 
-import com.intellij.ide.plugins.PluginManager
+import com.intellij.ide.plugins.cl.PluginAwareClassLoader
+import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 
 /**
  * Locates the DeepSeek Harness runtime that is BUNDLED inside the plugin
@@ -23,17 +25,28 @@ object DshBundledRuntime {
 
     /**
      * Absolute plugin directory, or null when it cannot be resolved (dev layouts).
-     * The platform API returns `java.nio.file.Path` on 243+; keep the `File` branch
-     * for robustness against older descriptors.
+     * PluginAwareClassLoader is the public platform contract for obtaining the
+     * descriptor of the plugin that loaded this class.
      */
     fun pluginDir(): Path? {
-        val raw: Any? = PluginManager.getPluginByClass(DshBundledRuntime::class.java)?.pluginPath ?: return null
-        return when (raw) {
-            is Path -> raw
-            is java.io.File -> raw.toPath()
-            else -> null
-        }
+        val descriptorPath = (DshBundledRuntime::class.java.classLoader as? PluginAwareClassLoader)
+            ?.pluginDescriptor
+            ?.pluginPath
+        if (descriptorPath != null) return descriptorPath
+
+        return pluginDirFromCodeSource(DshBundledRuntime::class.java.protectionDomain?.codeSource?.location)
     }
+
+    /** Resolve the standard installed layout: `<plugin>/lib/<plugin>.jar`. */
+    internal fun pluginDirFromCodeSource(location: URL?): Path? = runCatching {
+        val codePath = location?.toURI()?.let(Paths::get) ?: return@runCatching null
+        if (!Files.isRegularFile(codePath) || !codePath.fileName.toString().endsWith(".jar", ignoreCase = true)) {
+            return@runCatching null
+        }
+        val libDir = codePath.parent ?: return@runCatching null
+        if (!libDir.fileName.toString().equals("lib", ignoreCase = true)) return@runCatching null
+        libDir.parent
+    }.getOrNull()
 
     /** The bundled dsh install root (`<pluginDir>/dsh-runtime`), when it exists. */
     fun installRoot(): Path? {
