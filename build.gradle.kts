@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.13"
+version = "0.1.14"
 
 repositories {
     mavenCentral()
@@ -100,7 +100,7 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
-val bundledDshVersion = "0.1.1-rc.1"
+val bundledDshVersion = "0.1.1-rc.2"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
 

@@ -155,10 +155,10 @@ The project is under active development. For version history and iteration progr
 
 Prerequisites: JDK 17+ (21/22 recommended). First build downloads the IntelliJ Platform
 dependencies and bundles the DSH runtime from the local npx cache — run
-`npx --yes @deepseek-ai/dsh@0.1.1-rc.1 --version` once so the required DSH installation exists.
+`npx --yes @deepseek-ai/dsh@0.1.1-rc.2 --version` once so the required DSH installation exists.
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.13.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.14.zip
 .\gradlew.bat runIde           # run a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # platform verification before publishing
 ```
