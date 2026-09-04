@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.14"
+version = "0.1.15"
 
 repositories {
     mavenCentral()
@@ -112,6 +112,13 @@ fun readDshRuntimeVersion(root: File): String? {
 }
 
 fun findDshRuntimeRoot(): File? {
+    // Persistent, flat project-local build input. Keeping it outside build/
+    // means `clean` does not force a runtime download. Do not use pnpm's
+    // virtual store as the archive source: it retains many package snapshots
+    // under .pnpm and inflates the plugin by roughly five times.
+    val localFlatCache = project.file(".build-input/dsh-rc2-flat")
+    if (readDshRuntimeVersion(localFlatCache) == bundledDshVersion) return localFlatCache
+
     val candidates = mutableListOf<File>()
     System.getenv("LOCALAPPDATA")?.let { candidates += File(File(it, "npm-cache"), "_npx") }
     System.getProperty("user.home")?.let { candidates += File(File(it, ".npm"), "_npx") }
@@ -147,6 +154,12 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             throw GradleException(
                 "bundleDshRuntime: expected dsh $bundledDshVersion, found $runtimeVersion " +
                     "in ${root.absolutePath}."
+            )
+        }
+        if (File(root, "node_modules/.pnpm").isDirectory) {
+            throw GradleException(
+                "bundleDshRuntime: ${root.absolutePath} is a pnpm virtual-store layout. " +
+                    "Use a flat npm/npx runtime source; archiving .pnpm duplicates package snapshots."
             )
         }
         from(File(root, "node_modules")) {

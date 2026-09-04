@@ -68,8 +68,8 @@ install it. Marketplace releases follow the same version numbers.
   follows the launcher contract of both old and new DSH releases.
 - **Native IDE diff** — when a file has VCS changes, opening it shows the IDE's side-by-side
   diff against the VCS baseline instead of the plain editor.
-- **Send selection to DSH** — editor context-menu action that starts the service if needed,
-  locates the session, and queues the selected text (or current line) as a message.
+- **Add selection to DSH** — editor context-menu action that starts the service if needed,
+  targets the visible chat, and appends the selected text (or current line) to its composer.
 
 ### Data safety & isolation
 - **Per-project isolated data** — every IDE project gets its own DSH home; credentials and
@@ -117,7 +117,7 @@ install it. Marketplace releases follow the same version numbers.
 | --- | --- |
 | Chat / approve tools / manage sessions | Everything happens inside the embedded Harness UI |
 | Open a file changed by the agent | Click the file in the chat → opens in the IDE editor, or the **IDE native diff** when it has VCS changes |
-| Send code to DSH | Select code → right-click → **Send Selection to DeepSeek Harness** |
+| Add code to the active DSH chat | Select code → right-click → **Add Selection to DeepSeek Harness Chat**, add your question, then send |
 | Sync plugins / presets from `~/.dsh` | In the embedded UI: Settings → **For IDE** → **Sync plugins** / **Sync presets** |
 | Reset plugins to defaults | Settings → **For IDE** → **Reset plugins** |
 | Start / stop / restart the service | Toolbar buttons in the tool window |
@@ -158,7 +158,7 @@ dependencies and bundles the DSH runtime from the local npx cache — run
 `npx --yes @deepseek-ai/dsh@0.1.1-rc.2 --version` once so the required DSH installation exists.
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.14.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.15.zip
 .\gradlew.bat runIde           # run a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # platform verification before publishing
 ```

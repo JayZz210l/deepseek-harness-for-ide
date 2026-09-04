@@ -11,6 +11,9 @@ window.__ModuleLoader__.load({
     var module = { exports: {} };
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+    // Defer this early patch row until the trigger registry exists.  This also
+    // guarantees our @ source registers before the later stock reference row.
+    exports.inject = ["inputTriggers"];
     var React = require("react");
     var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     var Button = primitives.Button;
@@ -39,6 +42,56 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = function apply(ctx) {
+      // A fast @ source backed by JetBrains' open editor tabs.  This plugin row
+      // is mounted before the stock filesystem reference row, so these results
+      // appear first while the original project-wide search remains available.
+      var inputTriggers = ctx.get("inputTriggers");
+      if (inputTriggers !== void 0) {
+        var openEditorsSource = {
+          trigger: "@",
+          name: "ide-open-editors",
+          showGroupTitle: false,
+          candidates: async function (_session, options) {
+            var query = (options.query || "").toLowerCase();
+            try {
+              var response = await fetch("/__dsh_ide/open-files", { signal: options.signal });
+              if (!response.ok) return [];
+              var paths = await response.json();
+              return paths.filter(function (path) {
+                return query === "" || String(path).toLowerCase().indexOf(query) >= 0;
+              }).map(function (path) {
+                var text = String(path);
+                var label = text.slice(text.lastIndexOf("/") + 1);
+                var mention = /\s/.test(text) ? '@"' + text.replace(/"/g, "") + '"' : "@" + text;
+                return {
+                  name: "IDE 标签 · " + label,
+                  description: text,
+                  section: "已打开的文件 / Open editors",
+                  value: JSON.stringify({ mention: mention, label: label }),
+                };
+              });
+            } catch (_error) {
+              return [];
+            }
+          },
+          onPick: function (pick) {
+            var value = JSON.parse(pick.candidate.value);
+            return { insert: {
+              source: "ide-open-editors",
+              ref: value.mention,
+              label: value.label,
+              appearance: "file",
+              clipboardText: value.mention,
+            } };
+          },
+          codec: {
+            clipboardText: function (ref) { return ref; },
+            serialize: function (ref) { return Promise.resolve(ref); },
+          },
+        };
+        ctx.effect(function () { return inputTriggers.registerSource(openEditorsSource); }, "ide: open editor @ source");
+      }
+
       var slots = ctx.get("slots");
       if (slots === void 0) return;
 

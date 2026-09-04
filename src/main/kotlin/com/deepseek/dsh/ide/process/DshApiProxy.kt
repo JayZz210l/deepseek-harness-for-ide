@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class DshApiProxy(
     private val onOpenPath: (path: String) -> Unit,
+    private val openFilesJson: () -> String = { "[]" },
 ) {
 
     private val running = AtomicBoolean(false)
@@ -115,6 +116,11 @@ class DshApiProxy(
                         val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
                         val bodyBytes = readBody(cl.getInputStream(), contentLength)
                         interceptOpenPath(cl, String(bodyBytes, StandardCharsets.UTF_8))
+                        continue
+                    }
+
+                    if (method == "GET" && path == "/__dsh_ide/open-files") {
+                        respondPlain(cl.getOutputStream(), "200 OK", "application/json; charset=utf-8", openFilesJson())
                         continue
                     }
 

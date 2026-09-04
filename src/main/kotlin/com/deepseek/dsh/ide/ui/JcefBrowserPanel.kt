@@ -1,9 +1,13 @@
 package com.deepseek.dsh.ide.ui
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.components.service
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBuilder
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefLoadHandlerAdapter
 import javax.swing.JComponent
 
 /**
@@ -36,6 +40,23 @@ class JcefBrowserPanel(project: Project) {
     }
 
     init {
+        val bridge = project.service<DshBrowserBridge>()
+        bridge.attach(browser)
+        browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadingStateChange(
+                cefBrowser: CefBrowser?,
+                isLoading: Boolean,
+                canGoBack: Boolean,
+                canGoForward: Boolean,
+            ) {
+                if (isLoading) bridge.markLoading()
+            }
+
+            override fun onLoadEnd(cefBrowser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
+                if (frame?.isMain == true) bridge.markLoaded()
+            }
+        }, browser.cefBrowser)
+        Disposer.register(project) { bridge.detach(browser) }
         Disposer.register(project, browser)
     }
 }

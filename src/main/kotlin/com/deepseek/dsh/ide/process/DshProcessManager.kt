@@ -364,11 +364,17 @@ class DshProcessManager(private val project: Project) : Disposable {
         // already listening at this point. Without the native gateway, start the file-open
         // proxy in front of it: the embedded browser loads the proxy URL, everything is
         // forwarded byte-for-byte and `POST /api/host.openPath` is answered locally.
-        val useProxyFallback = mode == "proxy" || (mode == "auto" && !nativeActive)
         val realPort = url.substringAfterLast(':').toIntOrNull() ?: 0
         var browserUrl = url
-        if (useProxyFallback && realPort > 0) {
-            val newProxy = DshApiProxy { path -> openPathInIde(path) }
+        if (realPort > 0) {
+            // The browser always uses the local proxy.  Besides the legacy
+            // host.openPath fallback it exposes the IDE's live editor tabs to
+            // the client-side @ source; native host integration still travels
+            // through the composition bridge unchanged.
+            val newProxy = DshApiProxy(
+                onOpenPath = { path -> openPathInIde(path) },
+                openFilesJson = ::openEditorFilesJson,
+            )
             val proxyPort = runCatching { newProxy.start(realPort) }.getOrNull()
             if (proxyPort != null) {
                 proxy = newProxy
@@ -415,6 +421,38 @@ class DshProcessManager(private val project: Project) : Disposable {
             lifecycle.execute { onProcessExit(spawned, exit.exitValue()) }
             null
         }
+    }
+
+    /** Active editor first, followed by the remaining open tabs in IDE order. */
+    private fun openEditorFilesJson(): String {
+        if (project.isDisposed) return "[]"
+        var paths: List<String> = emptyList()
+        ApplicationManager.getApplication().invokeAndWait {
+            if (project.isDisposed) return@invokeAndWait
+            val files = FileEditorManager.getInstance(project)
+            val selected = files.selectedFiles.toList()
+            paths = (selected + files.openFiles).distinct().map { file ->
+                project.basePath?.let { base ->
+                    runCatching { File(base).toPath().relativize(file.toNioPath()).toString() }.getOrNull()
+                } ?: file.path
+            }.map { it.replace('\\', '/') }
+        }
+        return paths.joinToString(prefix = "[", postfix = "]") { jsonString(it) }
+    }
+
+    private fun jsonString(value: String): String = buildString(value.length + 2) {
+        append('"')
+        value.forEach { ch ->
+            when (ch) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> if (ch.code < 0x20) append("\\u%04x".format(ch.code)) else append(ch)
+            }
+        }
+        append('"')
     }
 
     /** Extracts the dsh installation root from a resolved `.../lib/bin.js` token, if present. */

@@ -60,8 +60,8 @@
   启动失败自动回退 TCP 代理；`--patch` 参数布局兼容新旧 DSH 启动器）；
 - **IDE 原生 Diff**——文件有 VCS 改动时，打开的是 IDE 并排 Diff（对比 VCS 基线），
   而不是普通编辑器；
-- **编辑器选区直发**——右键把选中代码（或当前行）作为消息发给 DSH，自动启动服务、
-  定位会话并唤起侧边栏。
+- **编辑器选区附加**——右键把选中代码（或当前行）放入当前 DSH 对话输入框，自动启动服务、
+  唤起侧边栏并聚焦输入框，便于补充问题后自行发送。
 
 ### 数据安全与隔离
 - **每项目隔离数据**——每个项目独立 DSH home，启动时从 `~/.dsh` 单向继承凭据与设置，
@@ -103,7 +103,7 @@
 | --- | --- |
 | 对话 / 审批工具 / 管理会话 | 全部在内嵌的 Harness 界面中完成 |
 | 打开智能体改动的文件 | 聊天中点文件 → IDE 编辑器；有 VCS 改动时打开 **IDE 原生 Diff** |
-| 发送代码给 DSH | 选中代码 → 右键 **Send Selection to DeepSeek Harness** |
+| 把代码附加到当前 DSH 对话 | 选中代码 → 右键 **附加选区到 DeepSeek Harness 对话**，补充问题后发送 |
 | 同步 `~/.dsh` 中的插件 / 预设 | 内嵌界面 设置 → **For IDE** → **同步插件 / 同步预设** |
 | 恢复默认插件 | 内嵌界面 设置 → **For IDE** → **恢复默认插件** |
 | 启动 / 停止 / 重启服务 | 工具窗口工具栏按钮 |
@@ -142,7 +142,7 @@
 DSH 运行时——请先跑一次 `npx --yes @deepseek-ai/dsh@0.1.1-rc.2 --version` 保证有可用安装。
 
 ```powershell
-.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.14.zip
+.\gradlew.bat buildPlugin      # → build/distributions/deepseek-harness-jetbrains-0.1.15.zip
 .\gradlew.bat runIde           # 带插件的沙箱 IDE 调试
 .\gradlew.bat verifyPlugin     # 上架前的平台验证
 ```

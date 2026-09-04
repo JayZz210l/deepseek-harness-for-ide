@@ -3,6 +3,7 @@
 .intellijPlatform/
 build/
 out/
+.build-input/
 
 # IntelliJ IDEA
 .idea/
