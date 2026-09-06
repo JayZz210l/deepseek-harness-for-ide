@@ -9,6 +9,9 @@
     "./package.json": "./package.json"
   },
   "dsh": {
-    "client": { "platform": "web" }
+    "client": {
+      "platform": "web",
+      "inject": ["inputTriggers", "slots"]
+    }
   }
 }

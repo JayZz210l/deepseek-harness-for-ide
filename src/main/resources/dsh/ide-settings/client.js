@@ -18,6 +18,28 @@ window.__ModuleLoader__.load({
     var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     var Button = primitives.Button;
 
+    // The IDE may still be restoring editor tabs when the first @ menu is
+    // opened. Retry a short-lived empty response so the active tab does not
+    // appear only after the user switches files once.
+    async function loadOpenEditorPaths(signal) {
+      for (var attempt = 0; attempt < 4; attempt++) {
+        try {
+          var response = await fetch("/__dsh_ide/open-files", {
+            signal: signal,
+            cache: "no-store",
+          });
+          if (!response.ok) return [];
+          var paths = await response.json();
+          if (Array.isArray(paths) && (paths.length > 0 || attempt === 3)) return paths;
+        } catch (_error) {
+          if (signal && signal.aborted) return [];
+          if (attempt === 3) return [];
+        }
+        await new Promise(function (resolve) { setTimeout(resolve, 75 * (attempt + 1)); });
+      }
+      return [];
+    }
+
     var INFO = {
       version: "__PLUGIN_VERSION__",
       buildDate: "__BUILD_DATE__",
@@ -54,9 +76,7 @@ window.__ModuleLoader__.load({
           candidates: async function (_session, options) {
             var query = (options.query || "").toLowerCase();
             try {
-              var response = await fetch("/__dsh_ide/open-files", { signal: options.signal });
-              if (!response.ok) return [];
-              var paths = await response.json();
+              var paths = await loadOpenEditorPaths(options.signal);
               return paths.filter(function (path) {
                 return query === "" || String(path).toLowerCase().indexOf(query) >= 0;
               }).map(function (path) {
