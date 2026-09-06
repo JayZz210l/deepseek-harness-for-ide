@@ -96,18 +96,52 @@ window.__ModuleLoader__.load({
       if (slots === void 0) return;
 
       function openExternal(url) {
-        var connection = ctx.get("connection");
-        if (connection !== void 0 && connection.api !== void 0 && connection.api.host !== void 0) {
+        // Prefer the native JCEF query installed by the JetBrains plugin. It
+        // crosses directly into the IDE process, so DSH URL rewriting, service
+        // workers and server routing cannot turn the command into a 404.
+        if (typeof window.__dshIdeOpenPath === "function") {
           try {
-            var pending = connection.api.host.openPath({ path: url });
-            if (pending !== void 0 && typeof pending.catch === "function") pending.catch(function () {});
-            return;
-          } catch (err) { /* fall through to window.open */ }
+            return Promise.resolve(window.__dshIdeOpenPath(url));
+          } catch (error) {
+            return Promise.reject(error);
+          }
         }
-        if (typeof window !== "undefined") window.open(url, "_blank");
+        // DSH wraps fetch with its own API base. A relative fetch is redirected
+        // to the real server port, bypassing the JetBrains proxy and returning
+        // 404. Use the browser-native XHR channel and pin it to the JCEF page's
+        // actual origin (the page itself is loaded from the IDE proxy).
+        var bridgeUrl = window.location.origin + "/__dsh_ide/open?path=" + encodeURIComponent(url);
+        return new Promise(function (resolve, reject) {
+          var request = new XMLHttpRequest();
+          request.open("GET", bridgeUrl, true);
+          request.setRequestHeader("Cache-Control", "no-store");
+          request.onload = function () {
+            var body = null;
+            try { body = JSON.parse(request.responseText); } catch (_error) {}
+            if (request.status >= 200 && request.status < 300 && body !== null && body.opened === true) {
+              resolve();
+            } else {
+              reject(new Error("IDE bridge returned " + request.status));
+            }
+          };
+          request.onerror = function () { reject(new Error("IDE bridge connection failed")); };
+          request.send();
+        });
       }
 
       function ForIdeSection() {
+        var state = React.useState("");
+        var actionStatus = state[0];
+        var setActionStatus = state[1];
+        function runAction(url) {
+          setActionStatus("正在发送到 IDE… / Sending to IDE…");
+          openExternal(url).then(function () {
+            setActionStatus("操作已交给 IDE 处理 / Request accepted by IDE");
+          }).catch(function (error) {
+            setActionStatus("操作失败 / Failed: " + error.message);
+            if (typeof window !== "undefined" && /^https?:/.test(url)) window.open(url, "_blank");
+          });
+        }
         var rows = [
           ["插件版本 Version", INFO.version],
           ["构建日期 Build date", INFO.buildDate],
@@ -126,17 +160,21 @@ window.__ModuleLoader__.load({
             }),
           ),
           h("div", { style: { display: "flex", gap: "10px", paddingTop: "4px", flexWrap: "wrap" } },
-            h(Button, { variant: "outline", size: "sm", onClick: function () { openExternal(INFO.syncAgentPresetsPath); } },
+            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.syncAgentPresetsPath); } },
               "同步预设 / Sync presets"),
-            h(Button, { variant: "outline", size: "sm", onClick: function () { openExternal(INFO.syncPluginsPath); } },
+            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.syncPluginsPath); } },
               "同步插件 / Sync plugins"),
-            h(Button, { variant: "ghost", size: "sm", onClick: function () { openExternal(INFO.resetPluginsPath); } },
+            h(Button, { variant: "ghost", size: "sm", onClick: function () { runAction(INFO.resetPluginsPath); } },
               "恢复默认插件 / Reset plugins"),
-            h(Button, { variant: "outline", size: "sm", onClick: function () { openExternal(INFO.feedbackUrl); } },
+            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.feedbackUrl); } },
               "反馈 BUG / Report a problem"),
-            h(Button, { variant: "ghost", size: "sm", onClick: function () { openExternal(INFO.githubUrl); } },
+            h(Button, { variant: "ghost", size: "sm", onClick: function () { runAction(INFO.githubUrl); } },
               "GitHub"),
           ),
+          actionStatus ? h("div", {
+            role: "status",
+            style: { fontSize: "12px", color: "var(--dsw-alias-label-secondary)" },
+          }, actionStatus) : null,
         );
       }
 

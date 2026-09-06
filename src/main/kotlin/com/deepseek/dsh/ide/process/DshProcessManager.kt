@@ -77,6 +77,12 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Guards the one-time native→proxy fallback retry inside [startInternal]. */
     private var nativeRetryDepth = 0
 
+    /** Guards one automatic recovery from a synced profile using removed DSH APIs. */
+    private var pluginCompatibilityRetryDepth = 0
+
+    /** Lets transactional plugin sync observe the failed boot and perform its own rollback. */
+    private var pluginSyncValidationActive = false
+
     /** Guards the one-shot `--no-open` capability probe for external dsh runtimes. */
     private var noOpenProbeDone = false
 
@@ -94,6 +100,9 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Guards the restore-default-plugins entry point against duplicate clicks. */
     @Volatile
     private var pluginResetQueued = false
+
+    @Volatile
+    private var pluginCommandQueued = false
 
     private val disposed = AtomicBoolean(false)
 
@@ -157,10 +166,22 @@ class DshProcessManager(private val project: Project) : Disposable {
      * shipped default web profile. A running server is stopped and restarted;
      * when the restart fails, the previous synced profile is restored.
      */
-    fun resetPluginsToDefaultAsync() {
+    fun resetPluginsToDefaultAsync(restartAfterReset: Boolean = false) {
         if (disposed.get() || pluginResetQueued) return
         pluginResetQueued = true
-        lifecycle.execute { resetPluginsInternal() }
+        lifecycle.execute { resetPluginsInternal(restartAfterReset) }
+    }
+
+    /** Installs one plugin directly into this project's isolated DSH profile. */
+    fun installPluginFromCommandAsync(command: String) {
+        val spec = DshPluginCommand.parse(command)
+        if (spec == null) {
+            notify(DshBundle.message("dsh.notify.installPlugin.invalid"), NotificationType.ERROR)
+            return
+        }
+        if (disposed.get() || pluginCommandQueued) return
+        pluginCommandQueued = true
+        lifecycle.execute { installPluginInternal(spec) }
     }
 
     override fun dispose() {
@@ -265,7 +286,13 @@ class DshProcessManager(private val project: Project) : Disposable {
             includeSettingsRow = implRoot != null && bundledRoot != null && runCatching {
                 File(implRoot).canonicalPath.equals(File(bundledRoot).canonicalPath, ignoreCase = SystemInfo.isWindows)
             }.getOrDefault(false)
-            val patchFile = if (implRoot != null) DshNativeSupport.writeBridgeFiles(includeSettingsRow) else null
+            val modernControllers = implRoot != null && File(
+                implRoot,
+                "node_modules/@deepseek-ai/dsh-api-gateway/package.json",
+            ).isFile
+            val patchFile = if (implRoot != null) {
+                DshNativeSupport.writeBridgeFiles(includeSettingsRow, modernControllers)
+            } else null
             if (implRoot != null && patchFile != null) {
                 val bridge = DshIdeBridge { path -> openPathInIde(path) }
                 runCatching { bridge.start() }
@@ -293,6 +320,14 @@ class DshProcessManager(private val project: Project) : Disposable {
 
         val pb = ProcessBuilder(platformCommand(finalTokens))
         addNodeToPath(pb, nodeResolution.executable)
+        // The bundled runtime is launched as `node .../bin.js`, so it previously
+        // worked for the IDE itself but was invisible to server-side community
+        // plugins that locate `dsh.cmd` on PATH (plugin install/update/remove).
+        // Expose our packaged launcher only to this child process; the user's
+        // machine PATH and global npm installation remain untouched.
+        if (commandResolution.source == CommandResolution.Source.BUNDLED) {
+            DshBundledRuntime.cliBinDir()?.let { addDirectoryToPath(pb, it.toString()) }
+        }
         project.basePath?.let { base ->
             runCatching { pb.directory(File(base)) }
         }
@@ -341,6 +376,24 @@ class DshProcessManager(private val project: Project) : Disposable {
         if (url == null) {
             currentProcess = null
             if (stopRequested || disposed.get()) return
+            if (!pluginSyncValidationActive && pluginCompatibilityRetryDepth == 0 && hasRemovedPluginApiFailure()) {
+                val targetHome = DshHomePolicy.resolveHome(
+                    DshSettingsState.getInstance().current.dshHomeOverride,
+                    project.basePath,
+                )?.let(Paths::get)
+                val mainHome = DshHomePolicy.mainHome()
+                val quarantine = if (targetHome != null && !sameDirectoryPath(targetHome.toString(), mainHome.toString())) {
+                    DshPluginSync.quarantineIncompatibleProfile(targetHome, ::addLog)
+                } else null
+                if (quarantine != null) {
+                    pluginCompatibilityRetryDepth++
+                    nativeRetryDepth = 0
+                    stopBridge()
+                    notify(DshBundle.message("dsh.notify.syncPlugins.autoRecovered", quarantine), NotificationType.WARNING)
+                    startInternal()
+                    return
+                }
+            }
             // Native attempt died before serving: retry once without the patch, via the proxy.
             if (nativeActive && mode == "auto" && nativeRetryDepth == 0) {
                 nativeRetryDepth++
@@ -359,12 +412,14 @@ class DshProcessManager(private val project: Project) : Disposable {
             return
         }
         nativeRetryDepth = 0
+        pluginCompatibilityRetryDepth = 0
 
         // The `dsh web:` URL line is printed only after the Loader settles, so the server is
         // already listening at this point. Without the native gateway, start the file-open
         // proxy in front of it: the embedded browser loads the proxy URL, everything is
         // forwarded byte-for-byte and `POST /api/host.openPath` is answered locally.
-        val realPort = url.substringAfterLast(':').toIntOrNull() ?: 0
+        val parsedServerUri = runCatching { java.net.URI.create(url) }.getOrNull()
+        val realPort = parsedServerUri?.port ?: 0
         var browserUrl = url
         if (realPort > 0) {
             // The browser always uses the local proxy.  Besides the legacy
@@ -378,7 +433,8 @@ class DshProcessManager(private val project: Project) : Disposable {
             val proxyPort = runCatching { newProxy.start(realPort) }.getOrNull()
             if (proxyPort != null) {
                 proxy = newProxy
-                browserUrl = "http://127.0.0.1:$proxyPort"
+                browserUrl = "http://127.0.0.1:$proxyPort" +
+                    (parsedServerUri?.rawQuery?.let { "?$it" } ?: "")
                 addLog(DshBundle.message("dsh.proc.proxy", browserUrl, url))
             } else {
                 addLog(DshBundle.message("dsh.proc.proxyFailed", url))
@@ -584,28 +640,43 @@ class DshProcessManager(private val project: Project) : Disposable {
                 syncLog += line
                 addLog(line)
             }
-            when {
-                result.error == DshPluginSync.ERROR_PNPM_NOT_FOUND -> {
-                    notifyNoPnpm()
-                }
-                result.error != null -> {
-                    notify(
-                        DshBundle.message("dsh.notify.syncPlugins.failed", result.error),
-                        NotificationType.ERROR,
-                    )
-                }
-                result.changed -> {
-                    notify(DshBundle.message("dsh.notify.syncPlugins.done"), NotificationType.INFORMATION)
-                }
-                else -> {
-                    notify(DshBundle.message("dsh.notify.syncPlugins.upToDate"), NotificationType.INFORMATION)
-                }
-            }
-
-            if (wasRunning) {
-                startInternal()
+            if (result.error == DshPluginSync.ERROR_PNPM_NOT_FOUND) {
+                notifyNoPnpm()
+                if (wasRunning) startInternal() else publish(DshServerStatus(DshServerState.STOPPED))
+            } else if (result.error != null) {
+                notify(DshBundle.message("dsh.notify.syncPlugins.failed", result.error), NotificationType.ERROR)
+                if (wasRunning) startInternal() else publish(DshServerStatus(DshServerState.STOPPED))
+            } else if (!result.changed) {
+                notify(DshBundle.message("dsh.notify.syncPlugins.upToDate"), NotificationType.INFORMATION)
+                if (wasRunning) startInternal() else publish(DshServerStatus(DshServerState.STOPPED))
             } else {
-                publish(DshServerStatus(DshServerState.STOPPED))
+                // pnpm success only proves installation. Boot once with the current
+                // bundled DSH before committing, because community plugins may import
+                // APIs removed by a newer DSH release.
+                pluginSyncValidationActive = true
+                try {
+                    startInternal()
+                } finally {
+                    pluginSyncValidationActive = false
+                }
+                if (currentStatus.state == DshServerState.RUNNING) {
+                    DshPluginSync.commit(Paths.get(targetHome)) { line -> syncLog += line; addLog(line) }
+                    val message = if (result.skippedPackages.isEmpty()) {
+                        DshBundle.message("dsh.notify.syncPlugins.done")
+                    } else {
+                        DshBundle.message(
+                            "dsh.notify.syncPlugins.doneWithSkipped",
+                            result.skippedPackages.joinToString(", "),
+                        )
+                    }
+                    notify(message, NotificationType.INFORMATION)
+                    if (!wasRunning) stopInternal()
+                } else {
+                    val failure = currentStatus.detail.orEmpty()
+                    DshPluginSync.rollback(Paths.get(targetHome)) { line -> syncLog += line; addLog(line) }
+                    notify(DshBundle.message("dsh.notify.syncPlugins.incompatible", failure), NotificationType.ERROR)
+                    if (wasRunning) startInternal() else publish(DshServerStatus(DshServerState.STOPPED))
+                }
             }
         } finally {
             // startInternal clears the rolling log at its beginning, so the sync
@@ -613,6 +684,12 @@ class DshProcessManager(private val project: Project) : Disposable {
             syncLog.forEach(::addLog)
             pluginSyncQueued = false
         }
+    }
+
+    private fun hasRemovedPluginApiFailure(): Boolean = snapshotLog().takeLast(400).any { line ->
+        line.contains("does not provide an export named 'installSettingsSection'") ||
+            line.contains("does not provide an export named 'settingsNamespace'") ||
+            line.contains("Cannot find package '@deepseek-ai/dsh-host-apiproxy'")
     }
 
     /** Error balloon with a one-click action opening the pnpm installation page. */
@@ -678,7 +755,7 @@ class DshProcessManager(private val project: Project) : Disposable {
     // Restore-default-plugins (always on the lifecycle thread)
     // ---------------------------------------------------------------------------------------------
 
-    private fun resetPluginsInternal() {
+    private fun resetPluginsInternal(restartAfterReset: Boolean = false) {
         try {
             val settings = DshSettingsState.getInstance().current
             val targetHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
@@ -691,6 +768,7 @@ class DshProcessManager(private val project: Project) : Disposable {
             val homePath = Paths.get(targetHome)
             if (!DshPluginReset.hasWebProfile(homePath)) {
                 notify(DshBundle.message("dsh.notify.resetPlugins.nothing"), NotificationType.INFORMATION)
+                if (restartAfterReset && currentStatus.state != DshServerState.RUNNING) startInternal()
                 return
             }
 
@@ -709,7 +787,11 @@ class DshProcessManager(private val project: Project) : Disposable {
                 notify(DshBundle.message("dsh.notify.resetPlugins.failed", outcome.error), NotificationType.ERROR)
             }
 
-            if (wasRunning) {
+            // A failed/stopped server has no RUNNING transition to trigger a
+            // restart, but the recovery action in the toolbar must bring the
+            // clean default profile back online immediately.
+            val shouldRestart = wasRunning || restartAfterReset
+            if (shouldRestart) {
                 startInternal()
                 if (currentStatus.state == DshServerState.RUNNING) {
                     // The re-initialized default profile booted; the synced copy can go.
@@ -729,6 +811,71 @@ class DshProcessManager(private val project: Project) : Disposable {
             }
         } finally {
             pluginResetQueued = false
+        }
+    }
+
+    private fun installPluginInternal(spec: String) {
+        try {
+            val settings = DshSettingsState.getInstance().current
+            val targetHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            if (targetHome == null) {
+                notify(DshBundle.message("dsh.notify.installPlugin.failed", "无法解析项目 DSH_HOME"), NotificationType.ERROR)
+                return
+            }
+            val wasRunning = currentStatus.state == DshServerState.RUNNING
+            if (wasRunning) stopInternal()
+            publish(DshServerStatus(DshServerState.SYNCING, detail = DshBundle.message("dsh.status.installingPlugin")))
+
+            val node = resolveNode()
+            if (node.executable == null) {
+                notify(DshBundle.message("dsh.notify.installPlugin.failed", DshBundle.message("dsh.proc.noNode")), NotificationType.ERROR)
+                publish(DshServerStatus(DshServerState.FAILED, detail = DshBundle.message("dsh.proc.noNode")))
+                return
+            }
+            val command = resolveCommandTokens(settings, node.executable)
+            val tokens = command.tokens + listOf("plugin", "--profile", "web", "add", spec)
+            val processBuilder = ProcessBuilder(platformCommand(tokens))
+            addNodeToPath(processBuilder, node.executable)
+            if (command.source == CommandResolution.Source.BUNDLED) {
+                DshBundledRuntime.cliBinDir()?.let { addDirectoryToPath(processBuilder, it.toString()) }
+            }
+            processBuilder.environment()["DSH_HOME"] = targetHome
+            project.basePath?.let { processBuilder.directory(File(it)) }
+            processBuilder.redirectErrorStream(true)
+            val process = runCatching { processBuilder.start() }.getOrElse {
+                notify(DshBundle.message("dsh.notify.installPlugin.failed", it.message ?: it.javaClass.simpleName), NotificationType.ERROR)
+                publish(DshServerStatus(DshServerState.FAILED, detail = it.message))
+                return
+            }
+            addLog(DshBundle.message("dsh.proc.installPlugin.command", spec))
+            val output = StringBuilder()
+            val pump = Thread {
+                runCatching {
+                    process.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+                        lines.forEach { line -> output.appendLine(line); addLog("[plugin] $line") }
+                    }
+                }
+            }.apply { isDaemon = true; name = "DeepSeekHarness-plugin-install"; start() }
+            val finished = process.waitFor(5, TimeUnit.MINUTES)
+            if (!finished) {
+                process.destroyForcibly()
+                notify(DshBundle.message("dsh.notify.installPlugin.failed", "安装超时"), NotificationType.ERROR)
+                publish(DshServerStatus(DshServerState.FAILED, detail = "插件安装超时"))
+                return
+            }
+            pump.join(5_000)
+            if (process.exitValue() != 0) {
+                val detail = output.toString().trim().takeLast(6000)
+                notify(DshBundle.message("dsh.notify.installPlugin.failed", detail), NotificationType.ERROR)
+                if (wasRunning) startInternal() else publish(DshServerStatus(DshServerState.FAILED, detail = detail))
+                return
+            }
+            notify(DshBundle.message("dsh.notify.installPlugin.done", spec), NotificationType.INFORMATION)
+            // A direct install is intended to be immediately usable, including
+            // when the service was stopped or had failed before the action.
+            startInternal()
+        } finally {
+            pluginCommandQueued = false
         }
     }
 
@@ -755,7 +902,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         thread.start()
     }
 
-    private val URL_PATTERN: Pattern = Pattern.compile("https?://[0-9A-Za-z.\\-]+:\\d+")
+    private val URL_PATTERN: Pattern = Pattern.compile("https?://[0-9A-Za-z.\\-]+:\\d+(?:/[^\\s()]*)?")
 
     /**
      * Blocks (lifecycle thread) until the dsh process prints its `dsh web: <url>` line or exits.
@@ -947,15 +1094,20 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Ensure subprocesses launched by dsh can resolve the same Node executable. */
     private fun addNodeToPath(processBuilder: ProcessBuilder, nodeExecutable: String?) {
         val nodeDir = nodeExecutable?.let(::File)?.parentFile?.absolutePath ?: return
+        addDirectoryToPath(processBuilder, nodeDir)
+    }
+
+    /** Prepend one directory to the subprocess PATH without mutating the IDE environment. */
+    private fun addDirectoryToPath(processBuilder: ProcessBuilder, directory: String) {
         val environment = processBuilder.environment()
         val pathKey = environment.keys.firstOrNull { it.equals("PATH", ignoreCase = SystemInfo.isWindows) }
             ?: if (SystemInfo.isWindows) "Path" else "PATH"
         val currentPath = environment[pathKey].orEmpty()
         val alreadyPresent = currentPath.split(File.pathSeparatorChar).any {
-            it.trim().trim('"').equals(nodeDir, ignoreCase = SystemInfo.isWindows)
+            it.trim().trim('"').equals(directory, ignoreCase = SystemInfo.isWindows)
         }
         if (!alreadyPresent) {
-            environment[pathKey] = if (currentPath.isBlank()) nodeDir else "$nodeDir${File.pathSeparator}$currentPath"
+            environment[pathKey] = if (currentPath.isBlank()) directory else "$directory${File.pathSeparator}$currentPath"
         }
     }
 
@@ -1032,6 +1184,9 @@ class DshProcessManager(private val project: Project) : Disposable {
     // ---------------------------------------------------------------------------------------------
     // IDE file opening (target of the /api host.openPath interception)
     // ---------------------------------------------------------------------------------------------
+
+    /** Entry point for the JCEF-native settings-page bridge. */
+    fun openPathFromBrowser(path: String) = openPathInIde(path)
 
     private fun openPathInIde(path: String) {
         ApplicationManager.getApplication().invokeLater {
@@ -1216,6 +1371,10 @@ class DshProcessManager(private val project: Project) : Disposable {
         val base = project.basePath ?: return
         val shortTimeout = Duration.ofSeconds(5)
         try {
+            if (DshApiClient.isModernRemote(baseUrl, shortTimeout)) {
+                ensureModernProjectWorkspace(baseUrl, base, shortTimeout)
+                return
+            }
             val workspaces = DshApiClient.listWorkspaces(baseUrl, shortTimeout)
             val scoped = workspaces.filter { sameOrUnder(it.path, base) }
             val sessions = DshApiClient.listSessions(baseUrl, shortTimeout)
@@ -1271,6 +1430,30 @@ class DshProcessManager(private val project: Project) : Disposable {
         } catch (error: Exception) {
             addLog(DshBundle.message("dsh.proc.workspaceFailedDetail", error.message ?: error.javaClass.simpleName))
             log.warn("DeepSeek Harness workspace adoption failed", error)
+        }
+    }
+
+    /**
+     * DSH 0.1.2 replaced the unary workspace list with a WebSocket follow stream.
+     * `workspace/create` is idempotent and returns the complete target row, so it
+     * is sufficient for deterministic project adoption without implementing a
+     * second streaming client in the IDE process.
+     */
+    private fun ensureModernProjectWorkspace(baseUrl: String, base: String, timeout: Duration) {
+        val target = DshApiClient.createWorkspace(baseUrl, base, timeout)
+        if (target == null) {
+            addLog(DshBundle.message("dsh.proc.workspaceFailed", base))
+            return
+        }
+        addLog(DshBundle.message("dsh.proc.workspaceCanonical", target.path))
+        val sessions = DshApiClient.listSessions(baseUrl, timeout)
+        val hasBlank = target.sessionIds.any { id -> sessions.any { it.sessionId == id && it.blank } }
+        if (!hasBlank) {
+            runCatching { DshApiClient.createSession(baseUrl, target.workspaceId, target.path) }
+                .onSuccess { addLog(DshBundle.message("dsh.proc.workspaceBlankSession")) }
+                .onFailure { error ->
+                    addLog(DshBundle.message("dsh.proc.workspaceBlankFailed", error.message ?: error.javaClass.simpleName))
+                }
         }
     }
 

@@ -9,6 +9,7 @@ import com.deepseek.dsh.ide.process.DshServerStatusListener
 import com.deepseek.dsh.ide.process.DshServerTopics
 import com.deepseek.dsh.ide.stats.DshUsageStats
 import com.intellij.ide.BrowserUtil
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -18,6 +19,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
@@ -49,6 +51,8 @@ class DshToolWindowPanel(private val project: Project) {
 
     private val startStopAction = StartStopAction()
     private val restartAction = RestartAction()
+    private val resetPluginsAction = ResetPluginsAction()
+    private val installPluginCommandAction = InstallPluginCommandAction()
     private val openBrowserAction = OpenInBrowserAction()
     private val copyUrlAction = CopyUrlAction()
     private val feedbackAction = FeedbackAction()
@@ -59,6 +63,8 @@ class DshToolWindowPanel(private val project: Project) {
         DefaultActionGroup(
             startStopAction,
             restartAction,
+            resetPluginsAction,
+            installPluginCommandAction,
             Separator.create(),
             openBrowserAction,
             copyUrlAction,
@@ -179,6 +185,7 @@ class DshToolWindowPanel(private val project: Project) {
             val busy = status.state == DshServerState.STARTING || status.state == DshServerState.STOPPING
                 || status.state == DshServerState.SYNCING || status.state == DshServerState.RESETTING
             e.presentation.isEnabled = !busy
+            e.presentation.icon = if (running) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
             e.presentation.text = if (running) DshBundle.message("dsh.action.stop") else DshBundle.message("dsh.action.start")
             e.presentation.description = if (running) DshBundle.message("dsh.action.stop.desc") else DshBundle.message("dsh.action.start.desc")
         }
@@ -195,7 +202,7 @@ class DshToolWindowPanel(private val project: Project) {
     private inner class RestartAction : DumbAwareAction(
         DshBundle.message("dsh.action.restart"),
         DshBundle.message("dsh.action.restart.desc"),
-        null,
+        AllIcons.Actions.Restart,
     ) {
         override fun update(e: AnActionEvent) {
             val status = manager.currentStatus()
@@ -210,10 +217,61 @@ class DshToolWindowPanel(private val project: Project) {
         }
     }
 
+    /** Executes a supported dsh plugin command in the project-isolated DSH profile. */
+    private inner class InstallPluginCommandAction : DumbAwareAction(
+        DshBundle.message("dsh.action.installPlugin"),
+        DshBundle.message("dsh.action.installPlugin.desc"),
+        AllIcons.Actions.Install,
+    ) {
+        override fun update(e: AnActionEvent) {
+            val state = manager.currentStatus().state
+            e.presentation.isEnabled = state != DshServerState.STARTING &&
+                state != DshServerState.STOPPING &&
+                state != DshServerState.SYNCING &&
+                state != DshServerState.RESETTING
+        }
+
+        override fun actionPerformed(e: AnActionEvent) {
+            val spec = Messages.showInputDialog(
+                project,
+                DshBundle.message("dsh.action.installPlugin.prompt"),
+                DshBundle.message("dsh.action.installPlugin"),
+                Messages.getQuestionIcon(),
+            )?.trim().orEmpty()
+            if (spec.isBlank()) return
+            manager.installPluginFromCommandAsync(spec)
+        }
+    }
+
+    /** Emergency recovery that remains available when the embedded DSH page cannot start. */
+    private inner class ResetPluginsAction : DumbAwareAction(
+        DshBundle.message("dsh.action.resetPlugins"),
+        DshBundle.message("dsh.action.resetPlugins.desc"),
+        AllIcons.Actions.Refresh,
+    ) {
+        override fun update(e: AnActionEvent) {
+            val state = manager.currentStatus().state
+            e.presentation.isEnabled = state != DshServerState.STARTING &&
+                state != DshServerState.STOPPING &&
+                state != DshServerState.SYNCING &&
+                state != DshServerState.RESETTING
+        }
+
+        override fun actionPerformed(e: AnActionEvent) {
+            val answer = Messages.showYesNoDialog(
+                project,
+                DshBundle.message("dsh.action.resetPlugins.confirm"),
+                DshBundle.message("dsh.action.resetPlugins"),
+                Messages.getQuestionIcon(),
+            )
+            if (answer == Messages.YES) manager.resetPluginsToDefaultAsync(restartAfterReset = true)
+        }
+    }
+
     private inner class OpenInBrowserAction : DumbAwareAction(
         DshBundle.message("dsh.action.openBrowser"),
         DshBundle.message("dsh.action.openBrowser.desc"),
-        null,
+        AllIcons.General.Web,
     ) {
         override fun update(e: AnActionEvent) {
             e.presentation.isEnabled = manager.currentStatus().url != null
@@ -227,7 +285,7 @@ class DshToolWindowPanel(private val project: Project) {
     private inner class CopyUrlAction : DumbAwareAction(
         DshBundle.message("dsh.action.copyUrl"),
         DshBundle.message("dsh.action.copyUrl.desc"),
-        null,
+        AllIcons.Actions.Copy,
     ) {
         override fun update(e: AnActionEvent) {
             e.presentation.isEnabled = manager.currentStatus().url != null
@@ -243,7 +301,7 @@ class DshToolWindowPanel(private val project: Project) {
     private inner class FeedbackAction : DumbAwareAction(
         DshBundle.message("dsh.action.feedback"),
         DshBundle.message("dsh.action.feedback.desc"),
-        null,
+        AllIcons.Actions.Help,
     ) {
         override fun actionPerformed(e: AnActionEvent) {
             DshFeedback.openFeedback()
@@ -253,7 +311,7 @@ class DshToolWindowPanel(private val project: Project) {
     private inner class ToggleDetailsAction : ToggleAction(
         DshBundle.message("dsh.action.toggleLog"),
         DshBundle.message("dsh.action.toggleLog.desc"),
-        null,
+        AllIcons.Actions.ShowAsTree,
     ) {
         override fun isSelected(e: AnActionEvent): Boolean = detailsWrapper.isVisible
 

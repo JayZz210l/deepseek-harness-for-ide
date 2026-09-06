@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.15</version>
+    <version>0.1.16</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,26 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.16 — 内置 DeepSeek Harness 升级到 0.1.2-rc.1；顶部栏新增图标化控制、恢复默认插件和直接执行
+      DSH 插件安装命令的入口。即使机器没有主 DSH，输入
+      <code>dsh plugin --profile web add &lt;包名&gt;</code>（或直接输入包名）也会使用插件内置/解析到的 DSH
+      在当前项目隔离 profile 中安装，并在成功后自动重启。恢复默认插件可在 DSH 启动失败或页面打不开时清理
+      当前项目 profile 并自动恢复，主 DSH 目录不受影响。For IDE 的同步预设、同步插件和恢复默认插件按钮改用 JCEF 原生
+      JavaScript→IDE 通道直接派发操作，不再依赖会被 DSH 重写或绕过的 HTTP 同源代理；原 HTTP 入口仅作兼容回退。</p>
+      <p>0.1.22 — 修复 For IDE 按钮桥接仍返回 404：DSH 会把相对 fetch 重定向到原始服务端口，
+      现在显式固定到 JCEF 当前页面所在的 IDE 代理 origin。</p>
+      <p>0.1.21 — 修复 DSH 0.1.2 下 For IDE 页面全部按钮点击无效：按钮桥接改用无请求体的编码 GET，
+      避免 JCEF 请求体传输差异，并在页面内显示指令接收或失败状态。</p>
+      <p>0.1.20 — 修复内置 DSH 可以正常启动、但社区插件管理器提示 “dsh CLI not found on PATH” 的问题：
+      为 DSH 子进程暴露随插件打包的 CLI 启动器，无需全局安装 dsh 即可检查、安装、更新或卸载插件。</p>
+      <p>0.1.19 — “同步插件”改为逐项兼容过滤：可用插件继续同步，仅禁用仍依赖 DSH 0.1.2 已删除 API 的加载项，
+      并保留启动验证和失败回滚；修复 DSH 0.1.2 将输入框升级为 Lexical 富文本编辑器后，“附加选区到对话”失效的问题。</p>
+      <p>0.1.18 — 修复“同步插件”把旧 DSH API 插件写入项目后导致服务崩溃：同步改为完整 profile 事务，pnpm 安装后
+      必须通过当前 DSH 启动验证才提交，失败自动回滚；对已经损坏的 profile 提供启动时自动隔离与默认配置恢复。</p>
+      <p>0.1.17 — 修复 DSH 0.1.2-rc.1 前端因替换官方 Session/Settings Controller 而缺少 sessions、uiWorkspace
+      服务的问题；保留官方 Controller，通过 IDE 本地代理接管新版文件打开请求。</p>
+      <p>适配新版 Typert Remote API、启动令牌认证和 Typert Remote Controller 架构，同时保留官方 Controller 与旧版 DSH 协议回退。
+      修复新版下 IDE 文件跳转、项目工作区初始化、For IDE 设置按钮及代理启动 URL 的兼容问题。</p>
       <p>0.1.15 — 修复编辑器右键代码误投到旧会话或空白会话无效：选区现在附加到当前激活对话的输入框，由用户补充问题后发送；@ 引用优先显示当前文件及其他已打开的编辑器标签。</p>
       <p>0.1.14 — 内置 DeepSeek Harness 从 0.1.1-rc.1 升级到 0.1.1-rc.2，获得 Files API 图片上传与复用、按模型要求自动缩放和格式转换，以及上传失败时的内联图片回退。</p>
       <p>0.1.13 — 修复新版 DSH 引入的两个问题：启动时自动弹出外部浏览器（现在按运行时能力传 --no-open，外部 dsh 用一次性的 web --help 探测）；修正 --patch 参数位置（紧跟 web 子命令，新旧启动器均正确解析）。修复侧边栏无法选择工作区：启动时自动单向同步 ~/.dsh/.agent-presets（settings.yaml 引用的锚定 persona 等预设缺失曾导致 session.create 全部失败），并在必要时为目标工作区预置空白会话，兼容「列表首位」与「最近活跃」两种工作区自动选中策略。DSH API 响应改用嵌套不敏感的 JSON 解析树。</p>

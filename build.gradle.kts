@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.15"
+version = "0.1.16"
 
 repositories {
     mavenCentral()
@@ -100,7 +100,7 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
-val bundledDshVersion = "0.1.1-rc.2"
+val bundledDshVersion = "0.1.2-rc.1"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
 
@@ -116,7 +116,7 @@ fun findDshRuntimeRoot(): File? {
     // means `clean` does not force a runtime download. Do not use pnpm's
     // virtual store as the archive source: it retains many package snapshots
     // under .pnpm and inflates the plugin by roughly five times.
-    val localFlatCache = project.file(".build-input/dsh-rc2-flat")
+    val localFlatCache = project.file(".build-input/dsh-0.1.2-rc.1-runtime")
     if (readDshRuntimeVersion(localFlatCache) == bundledDshVersion) return localFlatCache
 
     val candidates = mutableListOf<File>()
@@ -176,6 +176,13 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
         inputs.dir(project.file("src/main/resources/dsh/ide-settings"))
         doLast {
             destinationDir.resolve("dsh-runtime/version.txt").writeText("$runtimeVersion\n")
+            // Community plugin managers discover the CLI on PATH instead of
+            // calling the already-running server. Ship a conventional npm-style
+            // launcher beside node_modules so the embedded runtime is discoverable
+            // without requiring a global `npm install -g @deepseek-ai/dsh`.
+            destinationDir.resolve("dsh-runtime/dsh.cmd").writeText(
+                "@echo off\r\nnode \"%~dp0node_modules\\@deepseek-ai\\dsh\\lib\\bin.js\" %*\r\n",
+            )
 
             // Client settings package: the "For IDE" section in the web UI settings page.
             // Shipped as a real package under the runtime's node_modules (the client-module

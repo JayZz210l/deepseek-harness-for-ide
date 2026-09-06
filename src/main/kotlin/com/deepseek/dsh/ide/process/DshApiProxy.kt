@@ -7,6 +7,7 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.UUID
@@ -92,13 +93,19 @@ class DshApiProxy(
                     val parts = head.substring(0, requestLineEnd).split(" ")
                     if (parts.size < 2) return
                     val method = parts[0].uppercase(Locale.ROOT)
-                    val rawPath = parts[1].substringBefore('?')
-                    // Accept absolute-form request lines (RFC 7230 §5.3.2); some clients send them.
-                    val path = if (rawPath.startsWith("http://") || rawPath.startsWith("https://")) {
-                        runCatching { java.net.URI.create(rawPath).rawPath ?: rawPath }.getOrDefault(rawPath)
-                    } else {
-                        rawPath
-                    }
+                    val rawTarget = parts[1]
+                    // Accept origin-form and absolute-form targets (RFC 7230 §5.3).
+                    val targetUri = runCatching {
+                        java.net.URI.create(
+                            if (rawTarget.startsWith("http://") || rawTarget.startsWith("https://")) {
+                                rawTarget
+                            } else {
+                                "http://localhost$rawTarget"
+                            },
+                        )
+                    }.getOrNull()
+                    val path = targetUri?.rawPath ?: rawTarget.substringBefore('?')
+                    val rawQuery = targetUri?.rawQuery ?: rawTarget.substringAfter('?', "")
                     val headers = parseHeaders(head.substring(requestLineEnd + 2))
 
                     // Only a real WebSocket handshake gets the raw-pump treatment. Clients
@@ -119,8 +126,44 @@ class DshApiProxy(
                         continue
                     }
 
+                    // DSH 0.1.2 moved native file opening from host.openPath to
+                    // the generated Typert Remote Session endpoint. Keep the
+                    // official controller mounted (its package supplies the web
+                    // client's `sessions` service), and intercept only this wire
+                    // call at the browser-facing proxy.
+                    if (method == "POST" && path == "/api/session/openWorkspacePath") {
+                        val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
+                        val body = String(readBody(cl.getInputStream(), contentLength), StandardCharsets.UTF_8)
+                        interceptRemoteOpenPath(cl, body)
+                        continue
+                    }
+
                     if (method == "GET" && path == "/__dsh_ide/open-files") {
                         respondPlain(cl.getOutputStream(), "200 OK", "application/json; charset=utf-8", openFilesJson())
+                        continue
+                    }
+
+                    if (method == "GET" && path == "/__dsh_ide/open") {
+                        val openPath = queryValue(rawQuery, "path")
+                        if (openPath.isNullOrBlank()) {
+                            respondPlain(cl.getOutputStream(), "400 Bad Request", "application/json; charset=utf-8", "{\"opened\":false}")
+                        } else {
+                            onOpenPath(openPath)
+                            respondPlain(cl.getOutputStream(), "200 OK", "application/json; charset=utf-8", "{\"opened\":true}")
+                        }
+                        continue
+                    }
+
+                    if (method == "POST" && path == "/__dsh_ide/open") {
+                        val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
+                        val body = String(readBody(cl.getInputStream(), contentLength), StandardCharsets.UTF_8)
+                        val openPath = extractJsonString(body, "path")?.let(::unescapeJson)
+                        if (openPath.isNullOrBlank()) {
+                            respondPlain(cl.getOutputStream(), "400 Bad Request", "application/json; charset=utf-8", "{\"opened\":false}")
+                        } else {
+                            onOpenPath(openPath)
+                            respondPlain(cl.getOutputStream(), "200 OK", "application/json; charset=utf-8", "{\"opened\":true}")
+                        }
                         continue
                     }
 
@@ -220,6 +263,18 @@ class DshApiProxy(
         client.getOutputStream().flush()
     }
 
+    private fun interceptRemoteOpenPath(client: Socket, body: String) {
+        val rpcId = extractJsonString(body, "rpcId") ?: UUID.randomUUID().toString()
+        val path = extractJsonString(body, "path")?.let(::unescapeJson)
+        val responseBody = if (path.isNullOrBlank()) {
+            "{\"type\":\"server-response\",\"rpcId\":\"$rpcId\",\"result\":{\"ok\":false,\"error\":{\"code\":\"gateway/arguments-invalid\",\"message\":\"missing path\",\"details\":{}}}}"
+        } else {
+            onOpenPath(path)
+            "{\"type\":\"server-response\",\"rpcId\":\"$rpcId\",\"result\":{\"ok\":true,\"value\":{\"opened\":true}}}"
+        }
+        respondPlain(client.getOutputStream(), "200 OK", "application/json; charset=utf-8", responseBody)
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Byte-level helpers
     // ---------------------------------------------------------------------------------------------
@@ -314,6 +369,19 @@ class DshApiProxy(
         val pattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
         return pattern.find(json)?.groupValues?.get(1)
     }
+
+    private fun queryValue(rawQuery: String, key: String): String? = rawQuery
+        .split('&')
+        .mapNotNull { part ->
+            val separator = part.indexOf('=')
+            if (separator < 0) null else part.substring(0, separator) to part.substring(separator + 1)
+        }
+        .firstOrNull { (rawKey, _) -> decodeQuery(rawKey) == key }
+        ?.second
+        ?.let(::decodeQuery)
+
+    private fun decodeQuery(value: String): String =
+        runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8) }.getOrDefault(value)
 
     private fun unescapeJson(value: String): String {
         val sb = StringBuilder(value.length)

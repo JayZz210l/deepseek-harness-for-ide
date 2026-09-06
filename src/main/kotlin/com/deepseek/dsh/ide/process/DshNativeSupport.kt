@@ -14,10 +14,11 @@ import java.util.concurrent.TimeUnit
  * - `ide-bridge.mjs` — the Cordis gateway replacement module (shipped as a plugin
  *   resource; it reads its runtime parameters from environment variables, so the
  *   file never needs rewriting);
- * - `patch.yml` — the `--patch` overlay replacing the `api-gateway` row with the
- *   bridge module (contains the absolute module path), and — when the bundled
- *   runtime is in use — adding the `dsh-ide-settings` row that carries the
- *   "For IDE" settings-page section into the web UI.
+ * - `patch.yml` — for legacy DSH, replaces `api-gateway`; for DSH 0.1.2+, keeps
+ *   every official controller intact and only adds the bundled
+ *   `dsh-ide-settings` client row. New Remote file-open calls are intercepted by
+ *   [DshApiProxy], because replacing a controller also hides its generated
+ *   client contribution from the web module scanner.
  *
  * Returns the patch file path, or null when the files could not be written.
  */
@@ -31,7 +32,7 @@ object DshNativeSupport {
     )
 
     @Synchronized
-    fun writeBridgeFiles(includeSettingsRow: Boolean = true): Path? {
+    fun writeBridgeFiles(includeSettingsRow: Boolean = true, modernControllers: Boolean = false): Path? {
         return runCatching {
             val dir = baseDir()
             Files.createDirectories(dir)
@@ -52,7 +53,11 @@ object DshNativeSupport {
             // node_modules) whose `dsh.client` declaration makes the web app load its
             // client.js — the "For IDE" settings section.
             val settingsRow = if (includeSettingsRow) "    - id: dsh-ide-settings\n      name: 'dsh-ide-settings'\n" else ""
-            val yaml = (
+            val yaml = if (modernControllers) {
+                if (!includeSettingsRow) return null
+                "# DeepSeek Harness IDE client patch (managed by the JetBrains plugin).\n" +
+                    "- insert:\n" + settingsRow
+            } else (
                 "# DeepSeek Harness IDE bridge patch (managed by the JetBrains plugin).\n" +
                     "# Disables the shipped api-gateway row and inserts the IDE bridge gateway,\n" +
                     "# which routes host.openPath into the IDE.\n" +

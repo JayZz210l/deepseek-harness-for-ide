@@ -4,11 +4,14 @@ import java.io.IOException
 import java.net.Proxy
 import java.net.ProxySelector
 import java.net.URI
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Minimal client for the DSH `/api` wire protocol (reverse-engineered from
@@ -26,7 +29,13 @@ import java.util.UUID
  */
 object DshApiClient {
 
-    private fun loopbackClient(): HttpClient = HttpClient.newBuilder()
+    private enum class Dialect { LEGACY, REMOTE }
+
+    private val dialects = ConcurrentHashMap<String, Dialect>()
+    private val authenticatedOrigins = ConcurrentHashMap.newKeySet<String>()
+    private val cookies = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+
+    private val client: HttpClient = HttpClient.newBuilder()
         // The JDK client defaults to HTTP_2, which sends a cleartext `Upgrade: h2c`
         // preamble. The DSH webserver routes Upgrade requests through its WebSocket
         // upgrade table, has no handler for h2c, and closes the connection without a
@@ -35,6 +44,8 @@ object DshApiClient {
         // has the same downgrade for the same reason).
         .version(HttpClient.Version.HTTP_1_1)
         .connectTimeout(Duration.ofSeconds(3))
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .cookieHandler(cookies)
         .proxy(object : ProxySelector() {
             override fun select(uri: URI): List<Proxy> {
                 val host = uri.host
@@ -49,18 +60,72 @@ object DshApiClient {
         })
         .build()
 
-    private fun post(baseUrl: String, method: String, payloadJson: String, timeout: Duration = Duration.ofSeconds(20)): String {
-        val body = "{\"type\":\"client-request\",\"rpcId\":\"${UUID.randomUUID()}\",\"method\":\"$method\",\"payload\":$payloadJson}"
-        val request = HttpRequest.newBuilder(URI.create("$baseUrl/api/$method"))
+    private class HttpFailure(val status: Int, body: String) : IOException("HTTP $status: ${body.take(200)}")
+
+    /** Scheme + authority only. The printed DSH URL may carry a one-time browser token. */
+    private fun origin(baseUrl: String): String {
+        val uri = URI.create(baseUrl)
+        return URI(uri.scheme, uri.rawAuthority, null, null, null).toString()
+    }
+
+    /** Exchange 0.1.2's launch token for its signed cookie before direct API calls. */
+    private fun authenticate(baseUrl: String, timeout: Duration) {
+        val uri = URI.create(baseUrl)
+        if (uri.rawQuery.isNullOrBlank()) return
+        // Include the launch token in the cache key. A fixed port may be reused
+        // after DSH restarts with a different signing context and launch token.
+        val key = baseUrl
+        if (authenticatedOrigins.contains(key)) return
+        synchronized(authenticatedOrigins) {
+            if (authenticatedOrigins.contains(key)) return
+            val request = HttpRequest.newBuilder(uri).timeout(timeout).GET().build()
+            val response = client.send(request, HttpResponse.BodyHandlers.discarding())
+            if (response.statusCode() !in 200..399) throw HttpFailure(response.statusCode(), "authentication failed")
+            authenticatedOrigins += key
+        }
+    }
+
+    private fun postWire(baseUrl: String, routeMethod: String, wireMethod: String, payloadJson: String, timeout: Duration): String {
+        authenticate(baseUrl, timeout)
+        val body = "{\"type\":\"client-request\",\"rpcId\":\"${UUID.randomUUID()}\",\"method\":\"$wireMethod\",\"payload\":$payloadJson}"
+        val request = HttpRequest.newBuilder(URI.create("${origin(baseUrl)}/api/$routeMethod"))
             .timeout(timeout)
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
-        val response = loopbackClient().send(request, HttpResponse.BodyHandlers.ofString())
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         if (response.statusCode() !in 200..299) {
-            throw IOException("HTTP ${response.statusCode()}: ${response.body().take(200)}")
+            throw HttpFailure(response.statusCode(), response.body())
         }
         return response.body()
+    }
+
+    private fun remotePost(baseUrl: String, endpoint: String, argsJson: String, timeout: Duration) =
+        postWire(baseUrl, endpoint, endpoint, "{\"args\":$argsJson}", timeout)
+
+    private fun legacyPost(baseUrl: String, method: String, payloadJson: String, timeout: Duration) =
+        postWire(baseUrl, method, method, payloadJson, timeout)
+
+    private fun dialect(baseUrl: String, timeout: Duration): Dialect = dialects.computeIfAbsent(baseUrl) {
+        val body = runCatching { remotePost(baseUrl, "session/list", "{\"_request\":{}}", timeout) }.getOrNull()
+        val ok = body?.let(DshJson::parse)?.let { DshJson.findBoolean(it, "ok") }
+        if (ok == true) Dialect.REMOTE else Dialect.LEGACY
+    }
+
+    fun isModernRemote(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): Boolean =
+        dialect(baseUrl, timeout) == Dialect.REMOTE
+
+    private fun post(
+        baseUrl: String,
+        legacyMethod: String,
+        legacyPayload: String,
+        remoteEndpoint: String,
+        remoteArgs: String,
+        timeout: Duration = Duration.ofSeconds(20),
+    ): String = if (dialect(baseUrl, timeout) == Dialect.REMOTE) {
+        remotePost(baseUrl, remoteEndpoint, remoteArgs, timeout)
+    } else {
+        legacyPost(baseUrl, legacyMethod, legacyPayload, timeout)
     }
 
     data class SessionSummary(
@@ -80,7 +145,8 @@ object DshApiClient {
 
     /** `workspace.list` — returns the durable workspaces in display order. */
     fun listWorkspaces(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): List<WorkspaceInfo> =
-        parseWorkspaceListBody(post(baseUrl, "workspace.list", "{}", timeout))
+        if (isModernRemote(baseUrl, timeout)) emptyList()
+        else parseWorkspaceListBody(legacyPost(baseUrl, "workspace.list", "{}", timeout))
 
     /** Parsing half of [listWorkspaces]; exposed for unit tests (pure). */
     internal fun parseWorkspaceListBody(body: String): List<WorkspaceInfo> {
@@ -101,10 +167,13 @@ object DshApiClient {
         val payload = "{\"path\":${jsonEscape(path)}}"
         // Both the flat (older dsh) and the `{workspace:{...}, created}` (newer dsh)
         // response shapes carry a workspaceId string somewhere in the tree.
-        val id = DshJson.parse(post(baseUrl, "workspace.create", payload, timeout))
-            ?.let { DshJson.findString(it, "workspaceId") }
+        val root = DshJson.parse(post(baseUrl, "workspace.create", payload, "workspace/create", "{\"request\":$payload}", timeout))
             ?: return null
-        return WorkspaceInfo(id, path)
+        val obj = DshJson.findObjects(root, "workspaceId").firstOrNull() ?: return null
+        val id = obj.members["workspaceId"]?.asString() ?: return null
+        val resolvedPath = obj.members["path"]?.asString() ?: path
+        val sessionIds = (obj.members["sessionIds"] as? DshJson.Node.Arr)?.items?.mapNotNull { it.asString() } ?: emptyList()
+        return WorkspaceInfo(id, resolvedPath, sessionIds, obj.members["createdAt"]?.asString())
     }
 
     /** `workspace.insertBefore` — moves a workspace to the front (anchor omitted appends). */
@@ -114,12 +183,12 @@ object DshApiClient {
         } else {
             "{\"workspaceId\":${jsonEscape(workspaceId)},\"beforeWorkspaceId\":${jsonEscape(beforeWorkspaceId)}}"
         }
-        post(baseUrl, "workspace.insertBefore", payload, timeout)
+        post(baseUrl, "workspace.insertBefore", payload, "workspace/insertBefore", "{\"request\":$payload}", timeout)
     }
 
     /** `session.list` — returns sessions ordered by `updatedAt` descending. */
     fun listSessions(baseUrl: String, timeout: Duration = Duration.ofSeconds(20)): List<SessionSummary> =
-        parseSessionListBody(post(baseUrl, "session.list", "{}", timeout))
+        parseSessionListBody(post(baseUrl, "session.list", "{}", "session/list", "{\"_request\":{}}", timeout))
 
     /** Parsing half of [listSessions]; exposed for unit tests (pure). */
     internal fun parseSessionListBody(body: String): List<SessionSummary> {
@@ -145,13 +214,13 @@ object DshApiClient {
     fun createSession(baseUrl: String, workspaceId: String?, cwd: String?): String {
         if (workspaceId != null) {
             val payload = "{\"workspaceId\":${jsonEscape(workspaceId)}}"
-            val attempt = runCatching { post(baseUrl, "session.create", payload) }.getOrNull()
+            val attempt = runCatching { post(baseUrl, "session.create", payload, "session/create", "{\"request\":$payload}") }.getOrNull()
             if (attempt != null) {
                 DshJson.parse(attempt)?.let { DshJson.findString(it, "sessionId") }?.let { return it }
             }
         }
         val payload = "{\"cwd\":${jsonEscape(cwd.orEmpty())}}"
-        val body = post(baseUrl, "session.create", payload)
+        val body = post(baseUrl, "session.create", payload, "session/create", "{\"request\":$payload}")
         return DshJson.parse(body)?.let { DshJson.findString(it, "sessionId") }
             ?: throw IOException("no sessionId in response: ${body.take(200)}")
     }
@@ -162,8 +231,9 @@ object DshApiClient {
     /** `session.prompt` — queues one text message into the session. */
     fun sendPrompt(baseUrl: String, sessionId: String, text: String) {
         val content = "[{\"type\":\"text\",\"text\":${jsonEscape(text)}}]"
-        val payload = "{\"sessionId\":${jsonEscape(sessionId)},\"mode\":\"queue\",\"content\":$content}"
-        val body = post(baseUrl, "session.prompt", payload)
+        val legacyPayload = "{\"sessionId\":${jsonEscape(sessionId)},\"mode\":\"queue\",\"content\":$content}"
+        val remotePayload = "{\"requestId\":${jsonEscape(UUID.randomUUID().toString())},\"sessionId\":${jsonEscape(sessionId)},\"mode\":\"queue\",\"content\":$content}"
+        val body = post(baseUrl, "session.prompt", legacyPayload, "session/prompt", "{\"request\":$remotePayload}")
         val accepted = DshJson.parse(body)?.let { DshJson.findBoolean(it, "accepted") }
         if (accepted != true && !body.contains("\"accepted\":true")) {
             throw IOException("unexpected response: ${body.take(200)}")
@@ -177,7 +247,8 @@ object DshApiClient {
      * [IOException] through [post].
      */
     fun credentialConfigured(baseUrl: String, ref: String): Boolean? {
-        val body = post(baseUrl, "credentials.describe", """{"refs":["$ref"]}""")
+        val legacyPayload = """{"refs":[${jsonEscape(ref)}]}"""
+        val body = post(baseUrl, "credentials.describe", legacyPayload, "credentials/describe", "{\"refs\":[${jsonEscape(ref)}]}")
         val root = DshJson.parse(body) ?: return null
         // value.credentials.<ref> = {configured, source?, writable} — find the
         // sub-object named after the ref, wherever the envelope nests it.

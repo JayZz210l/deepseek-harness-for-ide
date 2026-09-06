@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.Comparator
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,9 +24,9 @@ import java.util.concurrent.TimeUnit
  * absolute symlinks/junctions in it do not survive relocation and pnpm
  * rebuilds it from the manifest anyway.
  *
- * Failure safety: every overwritten destination is backed up first and
- * restored when the install fails, so a broken manifest from the main home
- * can never leave the IDE instance unbootable.
+ * Failure safety: the complete previous profile is moved aside as a transaction
+ * backup. The caller commits only after the new DSH process reaches RUNNING;
+ * install or boot failure restores the old profile including node_modules.
  */
 object DshPluginSync {
 
@@ -41,7 +42,7 @@ object DshPluginSync {
         "pnpm-lock.yaml",
     )
 
-    private const val BACKUP_SUFFIX = ".dsh-ide-sync-bak"
+    const val BACKUP_NAME = "$PROFILE.dsh-ide-sync-bak"
     private const val INSTALL_TIMEOUT_MINUTES = 5L
     private const val MAX_CAPTURED_LINES = 500
 
@@ -50,6 +51,10 @@ object DshPluginSync {
         val changed: Boolean,
         /** Human-readable failure, [ERROR_PNPM_NOT_FOUND], or null on success. */
         val error: String? = null,
+        /** A complete profile backup is waiting for post-restart commit/rollback. */
+        val pendingValidation: Boolean = false,
+        /** Packages whose loader rows were disabled because they import removed DSH APIs. */
+        val skippedPackages: List<String> = emptyList(),
     )
 
     private val isWindows: Boolean =
@@ -71,39 +76,44 @@ object DshPluginSync {
             return Result(changed = false)
         }
 
-        val backups = mutableListOf<Pair<Path, Path>>()
-        val created = mutableListOf<Path>()
-        var changed = false
+        val profilesDir = targetHome.resolve("profiles")
+        val backupDir = profilesDir.resolve(BACKUP_NAME)
+        val changed = SYNC_FILES.any { name ->
+            val source = sourceDir.resolve(name)
+            Files.isRegularFile(source) && !sameSyncContent(name, source, targetDir.resolve(name))
+        }
+        if (!changed) return Result(changed = false)
+
         try {
+            // An interrupted previous transaction always prefers its last-known-good profile.
+            if (Files.exists(backupDir)) {
+                deleteTree(targetDir)
+                Files.move(backupDir, targetDir)
+                log("Recovered interrupted plugin sync: $targetDir")
+            }
+            if (Files.exists(targetDir)) Files.move(targetDir, backupDir)
             Files.createDirectories(targetDir)
             for (name in SYNC_FILES) {
                 val source = sourceDir.resolve(name)
                 if (!Files.isRegularFile(source)) continue
                 val dest = targetDir.resolve(name)
-                if (sameContent(source, dest)) continue
-
-                if (Files.exists(dest)) {
-                    val backup = targetDir.resolve(name + BACKUP_SUFFIX)
-                    Files.copy(dest, backup, StandardCopyOption.REPLACE_EXISTING)
-                    backups.add(dest to backup)
-                } else {
-                    created.add(dest)
-                }
                 Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING)
-                changed = true
                 log("Copied: $source -> $dest")
             }
 
             val installError = install(targetDir, log)
             if (installError != null) {
-                rollback(backups, created, log)
+                rollback(targetHome, log)
                 return Result(changed = changed, error = installError)
             }
-
-            backups.forEach { (_, backup) -> runCatching { Files.deleteIfExists(backup) } }
-            return Result(changed = changed)
+            val compatibility = DshPluginCompatibility.apply(targetDir, log)
+            return Result(
+                changed = true,
+                pendingValidation = true,
+                skippedPackages = compatibility.packages,
+            )
         } catch (error: Exception) {
-            rollback(backups, created, log)
+            rollback(targetHome, log)
             return Result(
                 changed = changed,
                 error = error.message ?: error.javaClass.simpleName,
@@ -204,28 +214,52 @@ object DshPluginSync {
             Files.readAllBytes(source).contentEquals(Files.readAllBytes(dest))
         }.getOrDefault(false)
 
-    /**
-     * Returns the target profile directory to its pre-sync state: overwritten
-     * files are restored from backups, and files that did not exist before are
-     * removed again (a half-installed manifest would fail the next DSH boot).
-     */
-    private fun rollback(
-        backups: List<Pair<Path, Path>>,
-        created: List<Path>,
-        log: (String) -> Unit,
-    ) {
-        for ((dest, backup) in backups) {
-            runCatching {
-                Files.copy(backup, dest, StandardCopyOption.REPLACE_EXISTING)
-                Files.deleteIfExists(backup)
-                log("Restored: $dest")
-            }.onFailure { log("Restore failed for $dest: ${it.message}") }
-        }
-        for (dest in created) {
-            runCatching {
-                Files.deleteIfExists(dest)
-                log("Removed incomplete sync file: $dest")
-            }.onFailure { log("Cleanup failed for $dest: ${it.message}") }
+    private fun sameSyncContent(name: String, source: Path, dest: Path): Boolean {
+        if (name != "cordis.patch.yml") return sameContent(source, dest)
+        if (!Files.isRegularFile(dest)) return false
+        return runCatching {
+            DshPluginCompatibility.sourcePatchContent(Files.readString(source)) ==
+                DshPluginCompatibility.sourcePatchContent(Files.readString(dest))
+        }.getOrDefault(false)
+    }
+
+    /** Restores the complete pre-sync profile, including its installed dependency tree. */
+    fun rollback(targetHome: Path, log: (String) -> Unit) {
+        val profiles = targetHome.resolve("profiles")
+        val target = profiles.resolve(PROFILE)
+        val backup = profiles.resolve(BACKUP_NAME)
+        runCatching {
+            deleteTree(target)
+            if (Files.exists(backup)) Files.move(backup, target)
+            log("Rolled back incompatible plugin sync: $target")
+        }.onFailure { log("Plugin sync rollback failed for $target: ${it.message}") }
+    }
+
+    fun commit(targetHome: Path, log: (String) -> Unit) {
+        val backup = targetHome.resolve("profiles").resolve(BACKUP_NAME)
+        runCatching {
+            deleteTree(backup)
+            log("Plugin sync compatibility confirmed; backup removed: $backup")
+        }.onFailure { log("Plugin sync backup cleanup failed: ${it.message}") }
+    }
+
+    /** Preserve a currently broken profile for inspection and allow defaults to seed on retry. */
+    fun quarantineIncompatibleProfile(targetHome: Path, log: (String) -> Unit): Path? = runCatching {
+        val profiles = targetHome.resolve("profiles")
+        val web = profiles.resolve(PROFILE)
+        if (!Files.exists(web)) return null
+        var quarantine = profiles.resolve("$PROFILE.dsh-ide-incompatible-bak")
+        var suffix = 2
+        while (Files.exists(quarantine)) quarantine = profiles.resolve("$PROFILE.dsh-ide-incompatible-bak-$suffix").also { suffix++ }
+        Files.move(web, quarantine)
+        log("Quarantined incompatible plugin profile: $web -> $quarantine")
+        quarantine
+    }.getOrNull()
+
+    private fun deleteTree(path: Path) {
+        if (!Files.exists(path)) return
+        Files.walk(path).use { paths ->
+            paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
         }
     }
 

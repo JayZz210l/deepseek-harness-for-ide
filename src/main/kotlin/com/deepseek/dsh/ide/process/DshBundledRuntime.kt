@@ -60,6 +60,13 @@ object DshBundledRuntime {
         return if (Files.isRegularFile(bin)) bin else null
     }
 
+    /** Directory containing the bundled `dsh.cmd` launcher exposed to child plugins. */
+    fun cliBinDir(): Path? {
+        val root = installRoot() ?: return null
+        val launcher = root.resolve(if (com.intellij.openapi.util.SystemInfo.isWindows) "dsh.cmd" else "dsh")
+        return if (Files.isRegularFile(launcher) && binJs() != null) root else null
+    }
+
     /** Bundled dsh version from `dsh-runtime/version.txt`, for logging only. */
     fun version(): String? = installRoot()?.resolve("version.txt")
         ?.takeIf { Files.isRegularFile(it) }
