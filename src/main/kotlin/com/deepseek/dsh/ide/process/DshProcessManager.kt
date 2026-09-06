@@ -26,6 +26,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
 import java.util.Collections
@@ -276,16 +278,17 @@ class DshProcessManager(private val project: Project) : Disposable {
         // ── Native (composition patch) preparation ────────────────────────────────────────────────
         var nativeActive = false
         var includeSettingsRow = false
+        var bundledSettingsPackage: Path? = null
         val finalTokens = baseTokens.toMutableList()
         if (mode == "auto") {
             val implRoot = implRootFromTokens(baseTokens) ?: findNpxCachedBinJs()?.let(::implRootOf)
-            // The "For IDE" settings-page row is shipped inside the BUNDLED runtime's
-            // node_modules; it is only added to the patch when the bundled runtime is the
-            // one being launched (an external npx-cache install has no such package).
-            val bundledRoot = DshBundledRuntime.installRoot()?.toString()
-            includeSettingsRow = implRoot != null && bundledRoot != null && runCatching {
-                File(implRoot).canonicalPath.equals(File(bundledRoot).canonicalPath, ignoreCase = SystemInfo.isWindows)
-            }.getOrDefault(false)
+            // The "For IDE" settings-page row is shipped inside this plugin's bundled
+            // runtime. Mount it into the project profile even when the user selected an
+            // external dsh/npx runtime: the browser extension must not disappear merely
+            // because command resolution preferred a different executable.
+            bundledSettingsPackage = DshBundledRuntime.installRoot()
+                ?.resolve("node_modules/dsh-ide-settings")
+            includeSettingsRow = implRoot != null && bundledSettingsPackage?.let(Files::isDirectory) == true
             val modernControllers = implRoot != null && File(
                 implRoot,
                 "node_modules/@deepseek-ai/dsh-api-gateway/package.json",
@@ -346,7 +349,7 @@ class DshProcessManager(private val project: Project) : Disposable {
             // profile directory, so the junction must exist when dsh starts.
             if (includeSettingsRow && implRootEnv.isNotEmpty()) {
                 val linkHome = dshHome ?: DshHomePolicy.mainHome().toString()
-                DshNativeSupport.ensureClientSettingsLink(implRootEnv, linkHome, ::addLog)
+                DshNativeSupport.ensureClientSettingsLink(bundledSettingsPackage, linkHome, ::addLog)
             }
         }
 

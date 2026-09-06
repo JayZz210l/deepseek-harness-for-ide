@@ -83,10 +83,10 @@ object DshNativeSupport {
      * shipped inside the runtime's own node_modules (a junction — no admin rights
      * needed, mirroring what dsh's profile fallback healer does for its own packages).
      */
-    fun ensureClientSettingsLink(implRoot: String, dshHome: String, log: (String) -> Unit) {
+    fun ensureClientSettingsLink(packageRoot: Path?, dshHome: String, log: (String) -> Unit) {
         if (!SystemInfo.isWindows) return
         runCatching {
-            val target = Paths.get(implRoot, "node_modules", "dsh-ide-settings")
+            val target = packageRoot ?: return@runCatching
             if (!Files.isDirectory(target)) return@runCatching
             val modulesDir = Paths.get(dshHome, "profiles", "node_modules")
             Files.createDirectories(modulesDir)
