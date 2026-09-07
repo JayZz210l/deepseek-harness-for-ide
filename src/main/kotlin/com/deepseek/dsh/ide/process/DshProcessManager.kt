@@ -8,12 +8,14 @@ import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.actions.RevealFileAction
+import com.intellij.ide.projectView.ProjectView
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
@@ -35,8 +37,10 @@ import java.util.LinkedList
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
 
 /**
@@ -75,6 +79,18 @@ class DshProcessManager(private val project: Project) : Disposable {
     private var proxy: DshApiProxy? = null
 
     private var ideBridge: DshIdeBridge? = null
+
+    /**
+     * DSH edits files from a child process, so an IDE whose native file watcher
+     * missed an event can keep a visible document stale indefinitely.  While
+     * DSH is running, periodically refresh only the files already open in an
+     * editor.  This deliberately never reloads an unsaved document.
+     */
+    private var openEditorRefreshTask: ScheduledFuture<*>? = null
+
+    /** Last clean editor text and the pre-external-edit baseline used outside VCS projects. */
+    private val openEditorContents = ConcurrentHashMap<String, String>()
+    private val externalEditBaselines = ConcurrentHashMap<String, String>()
 
     /** Guards the one-time native→proxy fallback retry inside [startInternal]. */
     private var nativeRetryDepth = 0
@@ -188,6 +204,7 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     override fun dispose() {
         if (!disposed.compareAndSet(false, true)) return
+        stopOpenEditorRefresh()
         lifecycle.execute {
             killCurrentProcess()
             stopProxy()
@@ -464,6 +481,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         runningSinceNanos = System.nanoTime()
         currentStatus = DshServerStatus(DshServerState.RUNNING, url = browserUrl, realUrl = url, pid = spawned.pid())
         publish(currentStatus)
+        startOpenEditorRefresh()
 
         // Warn early when this instance has no DeepSeek API key: otherwise the first
         // prompt dies with a raw "llm-deepseek: no API key" error in the process log
@@ -530,6 +548,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         currentProcess = null
         if (stopRequested) return // stopInternal already published STOPPED
 
+        stopOpenEditorRefresh()
         stopProxy()
         stopBridge()
         recordStop()
@@ -550,6 +569,7 @@ class DshProcessManager(private val project: Project) : Disposable {
     }
 
     private fun stopInternal() {
+        stopOpenEditorRefresh()
         val process = currentProcess
         if (process == null) {
             stopProxy()
@@ -583,6 +603,103 @@ class DshProcessManager(private val project: Project) : Disposable {
     private fun stopBridge() {
         ideBridge?.stop()
         ideBridge = null
+    }
+
+    private fun startOpenEditorRefresh() {
+        stopOpenEditorRefresh()
+        openEditorRefreshTask = lifecycle.scheduleWithFixedDelay(
+            { refreshOpenEditorsFromDisk() },
+            1,
+            1,
+            TimeUnit.SECONDS,
+        )
+    }
+
+    private fun stopOpenEditorRefresh() {
+        openEditorRefreshTask?.cancel(false)
+        openEditorRefreshTask = null
+        openEditorContents.clear()
+        externalEditBaselines.clear()
+    }
+
+    /**
+     * Compares open editors with the real file contents on disk instead of with
+     * VFS timestamps. The latter can remain stale when the native watcher misses
+     * a DSH write (notably after atomic replaces), and a first polling pass can
+     * otherwise mistake an already changed file for the initial state.
+     */
+    private fun refreshOpenEditorsFromDisk() {
+        if (disposed.get() || project.isDisposed || currentStatus.state != DshServerState.RUNNING) return
+        var openFiles: List<OpenEditorSnapshot> = emptyList()
+        ApplicationManager.getApplication().invokeAndWait {
+            if (!project.isDisposed) {
+                val documents = FileDocumentManager.getInstance()
+                openFiles = FileEditorManager.getInstance(project).openFiles.map { file ->
+                    val document = documents.getCachedDocument(file)
+                    OpenEditorSnapshot(
+                        file = file,
+                        text = document?.text,
+                        unsaved = document != null && documents.isDocumentUnsaved(document),
+                    )
+                }
+            }
+        }
+        val livePaths = HashSet<String>()
+        for ((openFile, editorText, unsaved) in openFiles) {
+            if (!openFile.isInLocalFileSystem || editorText == null) continue
+            val path = openFile.path
+            livePaths += path
+            val previousText = openEditorContents.put(path, editorText)
+
+            // Preserve the previous clean text if IntelliJ's watcher refreshed
+            // the document before this polling pass observed the disk change.
+            if (!unsaved && previousText != null && previousText != editorText) {
+                externalEditBaselines.putIfAbsent(path, previousText)
+            }
+
+            val diskText = try {
+                Files.readString(Paths.get(path), openFile.charset)
+            } catch (error: Exception) {
+                log.debug("Unable to inspect open editor on disk: $path", error)
+                continue
+            }
+            if (!unsaved && normalizeEditorText(diskText) != normalizeEditorText(editorText)) {
+                // Keep the first pre-change snapshot until the user opens Diff.
+                externalEditBaselines.putIfAbsent(path, previousText ?: editorText)
+                val refreshed = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(path)) ?: continue
+                // Force VFS metadata/content caches to observe the external write
+                // before FileDocumentManager reloads the clean document on EDT.
+                refreshed.refresh(false, false)
+                reloadCleanDocument(refreshed)
+            }
+        }
+        openEditorContents.keys.retainAll(livePaths)
+        externalEditBaselines.keys.retainAll(livePaths)
+    }
+
+    private fun normalizeEditorText(text: String): String {
+        val withoutBom = if (text.startsWith('\uFEFF')) text.substring(1) else text
+        return withoutBom.replace("\r\n", "\n").replace('\r', '\n')
+    }
+
+    private data class OpenEditorSnapshot(
+        val file: com.intellij.openapi.vfs.VirtualFile,
+        val text: String?,
+        val unsaved: Boolean,
+    )
+
+    private fun reloadCleanDocument(file: com.intellij.openapi.vfs.VirtualFile) {
+        ApplicationManager.getApplication().invokeLater {
+            if (disposed.get() || project.isDisposed || !file.isValid) return@invokeLater
+            val documents = FileDocumentManager.getInstance()
+            val document = documents.getCachedDocument(file) ?: return@invokeLater
+            // Recheck on EDT so a keystroke made after the background snapshot
+            // can never be overwritten by the external refresh.
+            if (!documents.isDocumentUnsaved(document)) {
+                documents.reloadFromDisk(document)
+                openEditorContents[file.path] = document.text
+            }
+        }
     }
 
     private fun killCurrentProcess() {
@@ -1191,6 +1308,30 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Entry point for the JCEF-native settings-page bridge. */
     fun openPathFromBrowser(path: String) = openPathInIde(path)
 
+    /** Opens the exact before/after fragments carried by a DSH Edit tool result. */
+    fun openDiffFromBrowser(path: String, beforeText: String, afterText: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (disposed.get() || project.isDisposed) return@invokeLater
+            val file = resolveIdeFile(path)
+            val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)
+            val displayName = virtualFile?.name ?: file.name.ifBlank { path }
+            try {
+                val factory = DiffContentFactory.getInstance()
+                val request = SimpleDiffRequest(
+                    DshBundle.message("dsh.diff.title", displayName),
+                    factory.create(project, beforeText),
+                    factory.create(project, afterText),
+                    DshBundle.message("dsh.diff.beforeEdit"),
+                    DshBundle.message("dsh.diff.afterEdit"),
+                )
+                DiffManager.getInstance().showDiff(project, request)
+            } catch (error: Throwable) {
+                log.warn("DeepSeek Harness: tool edit diff failed for $path", error)
+                openPathInIde(path)
+            }
+        }
+    }
+
     private fun openPathInIde(path: String) {
         ApplicationManager.getApplication().invokeLater {
             if (disposed.get() || project.isDisposed) return@invokeLater
@@ -1209,6 +1350,10 @@ class DshProcessManager(private val project: Project) : Disposable {
                     resetPluginsToDefaultAsync()
                     return@invokeLater
                 }
+                path.equals(OPEN_SETTINGS_DOCUMENT_PATH, ignoreCase = true) -> {
+                    openSettingsDocumentInIde()
+                    return@invokeLater
+                }
             }
             // URLs — e.g. the feedback link of the "For IDE" settings section — open in
             // the system browser instead of being treated as file paths.
@@ -1216,9 +1361,9 @@ class DshProcessManager(private val project: Project) : Disposable {
                 runCatching { BrowserUtil.browse(path) }
                 return@invokeLater
             }
-            val file = File(path)
+            val file = resolveIdeFile(path)
             if (file.isDirectory) {
-                runCatching { RevealFileAction.openFile(file) }
+                openDirectoryInIde(file)
                 return@invokeLater
             }
             val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)
@@ -1232,9 +1377,56 @@ class DshProcessManager(private val project: Project) : Disposable {
             // VCS baseline diff when the file is modified (the agent just edited it);
             // `file` keeps the old behavior.
             val mode = DshSettingsState.getInstance().current.fileOpenMode.ifBlank { "auto" }
-            if (mode == "file" || !openVcsDiff(virtualFile)) {
+            if (mode == "file" || (!openVcsDiff(virtualFile) && !openExternalEditDiff(virtualFile))) {
                 openFileInEditor(virtualFile)
             }
+        }
+    }
+
+    /** Resolves the relative path displayed by a Tool row against this IDE project. */
+    private fun resolveIdeFile(path: String): File {
+        val expanded = if (path == "~") {
+            System.getProperty("user.home")
+        } else if (path.startsWith("~/") || path.startsWith("~\\")) {
+            System.getProperty("user.home") + path.substring(1)
+        } else {
+            path
+        }
+        val candidate = File(expanded)
+        return if (candidate.isAbsolute) candidate else File(project.basePath ?: ".", expanded)
+    }
+
+    /** Opens project directories in the IDE Project view; external directories fall back to Explorer/Finder. */
+    private fun openDirectoryInIde(directory: File) {
+        val base = project.basePath
+        val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(directory)
+        if (base != null && virtualFile != null && sameOrUnder(directory.path, base)) {
+            runCatching { ProjectView.getInstance(project).select(null, virtualFile, true) }
+                .onFailure { error ->
+                    log.warn("DeepSeek Harness: project directory reveal failed for ${directory.path}", error)
+                    runCatching { RevealFileAction.openFile(directory) }
+                }
+        } else {
+            runCatching { RevealFileAction.openFile(directory) }
+        }
+    }
+
+    /** Materializes the active DSH settings file and opens it in this IDE rather than a desktop editor. */
+    private fun openSettingsDocumentInIde() {
+        val settings = DshSettingsState.getInstance().current
+        val home = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            ?.let(Paths::get)
+            ?: DshHomePolicy.mainHome()
+        val document = home.resolve("settings.yaml")
+        runCatching {
+            Files.createDirectories(document.parent)
+            if (!Files.exists(document)) Files.createFile(document)
+            LocalFileSystem.getInstance().refreshAndFindFileByIoFile(document.toFile())
+                ?.let(::openFileInEditor)
+                ?: error("settings file is not visible to the IDE VFS")
+        }.onFailure { error ->
+            log.warn("DeepSeek Harness: settings document open failed for $document", error)
+            notify(DshBundle.message("dsh.notify.fileMissing", document.toString()), NotificationType.WARNING)
         }
     }
 
@@ -1266,6 +1458,28 @@ class DshProcessManager(private val project: Project) : Disposable {
             true
         } catch (error: Throwable) {
             log.warn("DeepSeek Harness: VCS diff failed for ${virtualFile.path}", error)
+            false
+        }
+    }
+
+    /** Opens a native Diff for externally edited open files even when the project has no VCS. */
+    private fun openExternalEditDiff(virtualFile: com.intellij.openapi.vfs.VirtualFile): Boolean {
+        val beforeText = externalEditBaselines.remove(virtualFile.path) ?: return false
+        val currentText = runCatching { String(virtualFile.contentsToByteArray(), virtualFile.charset) }.getOrNull()
+        if (currentText == null || beforeText == currentText) return false
+        return try {
+            val factory = DiffContentFactory.getInstance()
+            val request = SimpleDiffRequest(
+                DshBundle.message("dsh.diff.title", virtualFile.name),
+                factory.create(project, beforeText),
+                factory.create(project, virtualFile),
+                DshBundle.message("dsh.diff.beforeEdit"),
+                DshBundle.message("dsh.diff.workspace"),
+            )
+            DiffManager.getInstance().showDiff(project, request)
+            true
+        } catch (error: Throwable) {
+            log.warn("DeepSeek Harness: external edit diff failed for ${virtualFile.path}", error)
             false
         }
     }
@@ -1546,5 +1760,6 @@ class DshProcessManager(private val project: Project) : Disposable {
         const val SYNC_PLUGINS_PATH = "dsh-ide://sync-plugins"
         const val SYNC_AGENT_PRESETS_PATH = "dsh-ide://sync-agent-presets"
         const val RESET_PLUGINS_PATH = "dsh-ide://reset-plugins"
+        const val OPEN_SETTINGS_DOCUMENT_PATH = "dsh-ide://open-settings-document"
     }
 }

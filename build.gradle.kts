@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.16"
+version = "0.1.17"
 
 repositories {
     mavenCentral()
@@ -183,6 +183,90 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             destinationDir.resolve("dsh-runtime/dsh.cmd").writeText(
                 "@echo off\r\nnode \"%~dp0node_modules\\@deepseek-ai\\dsh\\lib\\bin.js\" %*\r\n",
             )
+
+            // Route every standard DSH desktop-open operation through the IDE.
+            // Current DSH sends generated Remote calls over a multiplexed,
+            // long-lived connection, where the browser-facing TCP proxy cannot
+            // safely rewrite one message. Patching the common native-command
+            // seam covers session files, settings.yaml, authored preset
+            // directories, and future callers of openNativePath/openNativeTextFile.
+            val nativeCommand = destinationDir.resolve(
+                "dsh-runtime/node_modules/@deepseek-ai/dsh-native-command/lib/index.js",
+            )
+            if (nativeCommand.isFile) {
+                var source = nativeCommand.readText()
+                val helperAnchor = "function openNativePath(path, signal, internals = {}) {"
+                val helper = """
+                    async function openInJetBrainsIde(path, signal, internals) {
+                      const bridgeUrl = process.env.DSH_IDE_BRIDGE_URL;
+                      if (bridgeUrl === void 0 || bridgeUrl === "" || internals.run !== void 0 || internals.platform !== void 0) return false;
+                      const token = process.env.DSH_IDE_BRIDGE_TOKEN ?? "";
+                      const response = await fetch(bridgeUrl + "/open", {
+                        method: "POST",
+                        headers: {
+                          "content-type": "application/json",
+                          ...token === "" ? {} : { authorization: "Bearer " + token }
+                        },
+                        body: JSON.stringify({ path }),
+                        signal
+                      });
+                      if (!response.ok) throw new Error("JetBrains IDE bridge returned " + String(response.status));
+                      return true;
+                    }
+                    async function openNativePath(path, signal, internals = {}) {
+                      if (await openInJetBrainsIde(path, signal, internals)) return;
+                """.trimIndent()
+                check(source.contains(helperAnchor)) {
+                    "bundleDshRuntime: dsh-native-command openNativePath seam changed"
+                }
+                source = source.replaceFirst(helperAnchor, helper)
+
+                val textAnchor = "function openNativeTextFile(path, signal, internals = {}) {"
+                val textReplacement = """
+                    async function openNativeTextFile(path, signal, internals = {}) {
+                      if (await openInJetBrainsIde(path, signal, internals)) return;
+                """.trimIndent()
+                check(source.contains(textAnchor)) {
+                    "bundleDshRuntime: dsh-native-command openNativeTextFile seam changed"
+                }
+                source = source.replaceFirst(textAnchor, textReplacement)
+                nativeCommand.writeText(source)
+            } else {
+                throw GradleException("bundleDshRuntime: dsh-native-command entry is missing")
+            }
+
+            // Edit rows already own the authoritative applied hunk payload.
+            // Hand it to JCEF's native bridge instead of asking the IDE to
+            // reconstruct a baseline after the file has changed on disk.
+            val toolClient = destinationDir.resolve(
+                "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-tool/lib/client.js",
+            )
+            if (toolClient.isFile) {
+                var source = toolClient.readText()
+                val anchor = """
+                    \t\t\tconst openFile = (event) => {
+                    \t\t\t\tevent.stopPropagation();
+                    \t\t\t\tif (filePath !== void 0) onOpenFile?.(filePath);
+                    \t\t\t};
+                """.trimIndent().replace("\\t", "\t")
+                val replacement = """
+                    \t\t\twindow.__dshIdeToolDiffBridgeAvailable = true;
+                    \t\t\tconst openFile = (event) => {
+                    \t\t\t\tevent.stopPropagation();
+                    \t\t\t\tif (filePath !== void 0 && diffBody !== null && typeof window.__dshIdeOpenDiff === "function") {
+                    \t\t\t\t\twindow.__dshIdeOpenDiff(filePath, diffBody.card.diffs).catch(() => onOpenFile?.(filePath));
+                    \t\t\t\t\treturn;
+                    \t\t\t\t}
+                    \t\t\t\tif (filePath !== void 0) onOpenFile?.(filePath);
+                    \t\t\t};
+                """.trimIndent().replace("\\t", "\t")
+                check(source.contains(anchor)) {
+                    "bundleDshRuntime: dsh-client-ui-tool file-open seam changed"
+                }
+                toolClient.writeText(source.replaceFirst(anchor, replacement))
+            } else {
+                throw GradleException("bundleDshRuntime: dsh-client-ui-tool entry is missing")
+            }
 
             // Client settings package: the "For IDE" section in the web UI settings page.
             // Shipped as a real package under the runtime's node_modules (the client-module

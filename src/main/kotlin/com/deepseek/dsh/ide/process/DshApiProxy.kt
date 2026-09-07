@@ -24,8 +24,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Ordinary requests are forwarded to the real server one by one; responses
  *   with a Content-Length are relayed and the loop continues (keep-alive).
  * - Responses without a Content-Length (SSE streams, EOF-delimited) and
- *   WebSocket upgrades fall back to a transparent bidirectional byte pump,
- *   which dedicates the connection to that stream.
+ *   WebSocket upgrades fall back to a transparent bidirectional byte pump.
+ *   These long-lived connections deliberately have no idle read timeout: the
+ *   event stream can be quiet while a user is considering an answer; the
+ *   connection remains dedicated to that stream.
  */
 class DshApiProxy(
     private val onOpenPath: (path: String) -> Unit,
@@ -202,6 +204,7 @@ class DshApiProxy(
                 // Streaming (SSE/EOF-delimited) or unknown: relay verbatim, then raw pump.
                 client.getOutputStream().write(respHead)
                 client.getOutputStream().flush()
+                disableIdleTimeouts(t, client)
                 pump(t, client)
                 return false
             }
@@ -227,8 +230,21 @@ class DshApiProxy(
             if (respHead.isEmpty()) return
             client.getOutputStream().write(respHead)
             client.getOutputStream().flush()
+            disableIdleTimeouts(t, client)
             pump(t, client)
         }
+    }
+
+    /**
+     * The initial HTTP parsing timeout protects normal requests from stalled
+     * peers. Once a connection becomes a stream, however, an idle interval is
+     * expected. In particular, the remote-event WebSocket stays idle while the
+     * question composer is on screen; timing it out aborts the pending tool
+     * call and makes the composer disappear.
+     */
+    private fun disableIdleTimeouts(target: Socket, client: Socket) {
+        target.soTimeout = 0
+        client.soTimeout = 0
     }
 
     private fun connectTarget(): Socket? {        val target = Socket()

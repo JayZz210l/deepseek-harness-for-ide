@@ -8,6 +8,8 @@ import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
 import com.deepseek.dsh.ide.process.DshProcessManager
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /** Project-scoped handle used by editor actions to address the visible web composer. */
@@ -30,8 +32,17 @@ class DshBrowserBridge(private val project: Project) : Disposable {
         browser = value
         pageLoaded = false
         ideActionQuery = JBCefJSQuery.create(value as JBCefBrowserBase).also { query ->
-            query.addHandler { path ->
-                project.service<DshProcessManager>().openPathFromBrowser(path)
+            query.addHandler { payload ->
+                val diff = decodeDiffPayload(payload)
+                if (diff == null) {
+                    project.service<DshProcessManager>().openPathFromBrowser(payload)
+                } else {
+                    project.service<DshProcessManager>().openDiffFromBrowser(
+                        diff.path,
+                        diff.beforeText,
+                        diff.afterText,
+                    )
+                }
                 JBCefJSQuery.Response("{\"accepted\":true}")
             }
         }
@@ -65,12 +76,138 @@ class DshBrowserBridge(private val project: Project) : Disposable {
             "function(response) { resolve(response); }",
             "function(code, message) { reject(new Error(message || ('IDE bridge error ' + code))); }",
         )
+        val invokeDiff = query.inject(
+            "String(payload)",
+            "function(response) { resolve(response); }",
+            "function(code, message) { reject(new Error(message || ('IDE bridge error ' + code))); }",
+        )
         val script = """
             window.__dshIdeOpenPath = function(path) {
               return new Promise(function(resolve, reject) {
                 $invoke
               });
             };
+            window.__dshIdeOpenDiff = function(path, diffs) {
+              const encode = function(value) {
+                const bytes = new TextEncoder().encode(String(value));
+                let binary = '';
+                // Avoid spreading large edits onto the JS call stack.
+                for (let offset = 0; offset < bytes.length; offset += 8192) {
+                  binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 8192));
+                }
+                return btoa(binary);
+              };
+              const normalized = String(path).replaceAll('\\\\', '/').toLowerCase();
+              const candidates = Array.isArray(diffs) ? diffs.filter(function(diff) {
+                if (!diff || typeof diff.path !== 'string') return false;
+                const candidate = diff.path.replaceAll('\\\\', '/').toLowerCase();
+                return candidate === normalized || candidate.endsWith('/' + normalized) || normalized.endsWith('/' + candidate);
+              }) : [];
+              const selected = candidates.length > 0 ? candidates : (Array.isArray(diffs) ? diffs : []);
+              const before = selected.map(function(diff) { return diff && typeof diff.oldText === 'string' ? diff.oldText : ''; }).join('\n\n');
+              const after = selected.map(function(diff) { return diff && typeof diff.newText === 'string' ? diff.newText : ''; }).join('\n\n');
+              const payload = ['dsh-ide-diff-v1', encode(path), encode(before), encode(after)].join('\n');
+              return new Promise(function(resolve, reject) {
+                $invokeDiff
+              });
+            };
+
+            // DSH 0.1.2 tool rows render the underlined file name as a button
+            // and send its openWorkspacePath call over the long-lived Remote
+            // transport.  A TCP proxy cannot rewrite a single message inside
+            // that stream, so catch the button before React dispatches it to
+            // the desktop host. Markdown/result links are handled here too.
+            if (!window.__dshIdeLocalFileLinkHandlerInstalled) {
+              window.__dshIdeLocalFileLinkHandlerInstalled = true;
+              const localPathFromLink = function(link) {
+                const raw = (link.getAttribute('href') || '').trim();
+                if (/^[A-Za-z]:[\\/]/.test(raw) || /^\\\\/.test(raw)) return raw;
+                // Markdown commonly spells workspace files as relative links.
+                // DSH has no anchor-based client-side routes, so these can go
+                // straight to the IDE while explicit web schemes remain web.
+                if (raw && !raw.startsWith('#') && !raw.startsWith('//') &&
+                    !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(raw)) {
+                  const relative = raw.split(/[?#]/, 1)[0];
+                  if (relative && !relative.startsWith('/api/')) {
+                    try { return decodeURIComponent(relative); } catch (_) { return relative; }
+                  }
+                }
+                try {
+                  const url = new URL(raw, window.location.href);
+                  if (url.protocol !== 'file:') return null;
+                  let path = decodeURIComponent(url.pathname);
+                  // file:///C:/... has a leading slash which is not part of a
+                  // Windows drive path. UNC URLs retain their host name.
+                  if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1);
+                  if (url.host) path = '\\\\' + url.host + path.replaceAll('/', '\\\\');
+                  return path;
+                } catch (_) {
+                  return null;
+                }
+              };
+              const localPathFromToolButton = function(element) {
+                // The bundled ToolRow forwards authoritative hunk data through
+                // __dshIdeOpenDiff itself; do not pre-empt its React handler.
+                if (window.__dshIdeToolDiffBridgeAvailable === true) return null;
+                const button = element.closest('button');
+                if (!button || !button.closest('[data-tool]')) return null;
+                // CSS-module prefixes change between DSH builds; the semantic
+                // suffix and dotted underline are both stable identifiers for
+                // ToolRow's dedicated file button.
+                const classMatch = Array.from(button.classList).some(function(name) {
+                  return /(?:^|_)fileLink$/.test(name);
+                });
+                const decoration = getComputedStyle(button).textDecorationLine || '';
+                if (!classMatch && !decoration.includes('underline')) return null;
+                const path = (button.textContent || '').trim();
+                return path || null;
+              };
+              const localPathFromProducedFile = function(element) {
+                const button = element.closest('button');
+                if (!button) return null;
+                if (button.closest('[data-produced-files-row]')) {
+                  return (button.getAttribute('title') || button.textContent || '').trim() || null;
+                }
+                const showFolder = Array.from(button.classList).some(function(name) {
+                  return /(?:^|_)showFolder$/.test(name);
+                });
+                return showFolder ? '.' : null;
+              };
+              const localPathFromFileMention = function(element) {
+                const button = element.closest('button[title]');
+                if (!button) return null;
+                const isMention = Array.from(button.classList).some(function(name) {
+                  return /(?:^|_)fileMention$/.test(name);
+                });
+                return isMention ? (button.getAttribute('title') || '').trim() || null : null;
+              };
+              const ideSettingsAction = function(element) {
+                const button = element.closest('button');
+                if (!button) return null;
+                const label = (button.textContent || '').trim();
+                if (label === '打开配置文件' || label === 'Open configuration file') {
+                  return 'dsh-ide://open-settings-document';
+                }
+                return null;
+              };
+              window.addEventListener('click', function(event) {
+                if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                const element = event.target instanceof Element ? event.target : null;
+                if (!element) return;
+                const link = element.closest('a[href]');
+                const path = link ? localPathFromLink(link) :
+                  localPathFromToolButton(element) ||
+                  localPathFromProducedFile(element) ||
+                  localPathFromFileMention(element) ||
+                  ideSettingsAction(element);
+                if (!path) return;
+                event.preventDefault();
+                event.stopPropagation();
+                window.__dshIdeOpenPath(path).catch(function(error) {
+                  console.warn('DeepSeek Harness IDE could not open local file', error);
+                });
+              }, true);
+            }
         """.trimIndent()
         target.cefBrowser.executeJavaScript(script, target.cefBrowser.url, 0)
     }
@@ -168,6 +305,27 @@ class DshBrowserBridge(private val project: Project) : Disposable {
         ideActionQuery = null
         browser = null
         pending.clear()
+    }
+
+    private data class BrowserDiffPayload(
+        val path: String,
+        val beforeText: String,
+        val afterText: String,
+    )
+
+    private fun decodeDiffPayload(payload: String): BrowserDiffPayload? {
+        if (!payload.startsWith("dsh-ide-diff-v1\n")) return null
+        val parts = payload.split('\n', limit = 4)
+        if (parts.size != 4) return null
+        return runCatching {
+            val decoder = Base64.getDecoder()
+            fun decode(value: String): String = String(decoder.decode(value), StandardCharsets.UTF_8)
+            BrowserDiffPayload(
+                path = decode(parts[1]),
+                beforeText = decode(parts[2]),
+                afterText = decode(parts[3]),
+            )
+        }.getOrNull()
     }
 
     private fun jsString(value: String): String = buildString(value.length + 2) {

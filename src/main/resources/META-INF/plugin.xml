@@ -26,6 +26,8 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.17 — 修复 AI 写入后 IDE 编辑器不刷新、Edit 文件名未打开原生 Diff、DSH 页面部分文件入口绕过 IDE、
+      「询问用户」选择框空闲后消失，以及首次 @ 引用和外部 DSH 运行时的 IDE 文件候选未正确加载等问题。</p>
       <p>0.1.16 — 内置 DeepSeek Harness 升级到 0.1.2-rc.1；顶部栏新增图标化控制、恢复默认插件和直接执行
       DSH 插件安装命令的入口。即使机器没有主 DSH，输入
       <code>dsh plugin --profile web add &lt;包名&gt;</code>（或直接输入包名）也会使用插件内置/解析到的 DSH
