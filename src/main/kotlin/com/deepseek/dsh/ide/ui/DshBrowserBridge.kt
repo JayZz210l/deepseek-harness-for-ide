@@ -25,10 +25,14 @@ class DshBrowserBridge(private val project: Project) : Disposable {
     @Volatile
     private var ideActionQuery: JBCefJSQuery? = null
 
+    @Volatile
+    private var openFilesQuery: JBCefJSQuery? = null
+
     private val pending = ConcurrentLinkedQueue<String>()
 
     fun attach(value: JBCefBrowser) {
         ideActionQuery?.dispose()
+        openFilesQuery?.dispose()
         browser = value
         pageLoaded = false
         ideActionQuery = JBCefJSQuery.create(value as JBCefBrowserBase).also { query ->
@@ -46,12 +50,20 @@ class DshBrowserBridge(private val project: Project) : Disposable {
                 JBCefJSQuery.Response("{\"accepted\":true}")
             }
         }
+        openFilesQuery = JBCefJSQuery.create(value as JBCefBrowserBase).also { query ->
+            query.addHandler {
+                val paths = project.service<DshProcessManager>().openEditorFilesJsonFromBrowser()
+                JBCefJSQuery.Response(paths)
+            }
+        }
     }
 
     fun detach(value: JBCefBrowser) {
         if (browser === value) {
             ideActionQuery?.dispose()
             ideActionQuery = null
+            openFilesQuery?.dispose()
+            openFilesQuery = null
             browser = null
             pageLoaded = false
         }
@@ -81,6 +93,11 @@ class DshBrowserBridge(private val project: Project) : Disposable {
             "function(response) { resolve(response); }",
             "function(code, message) { reject(new Error(message || ('IDE bridge error ' + code))); }",
         )
+        val invokeFiles = openFilesQuery?.inject(
+            "",
+            "function(response) { resolve(response); }",
+            "function(code, message) { reject(new Error(message || ('IDE files bridge error ' + code))); }",
+        ) ?: "resolve([])"
         val script = """
             window.__dshIdeOpenPath = function(path) {
               return new Promise(function(resolve, reject) {
@@ -109,6 +126,14 @@ class DshBrowserBridge(private val project: Project) : Disposable {
               const payload = ['dsh-ide-diff-v1', encode(path), encode(before), encode(after)].join('\n');
               return new Promise(function(resolve, reject) {
                 $invokeDiff
+              });
+            };
+            // Read the current/open editor snapshot directly from the JetBrains
+            // process. This remains available even when the DSH proxy page is
+            // reconnecting or its /__dsh_ide route is temporarily unavailable.
+            window.__dshIdeOpenFiles = function() {
+              return new Promise(function(resolve, reject) {
+                $invokeFiles
               });
             };
 
@@ -303,6 +328,8 @@ class DshBrowserBridge(private val project: Project) : Disposable {
     override fun dispose() {
         ideActionQuery?.dispose()
         ideActionQuery = null
+        openFilesQuery?.dispose()
+        openFilesQuery = null
         browser = null
         pending.clear()
     }

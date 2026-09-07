@@ -17,6 +17,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vcs.changes.Change
@@ -93,6 +94,14 @@ class DshProcessManager(private val project: Project) : Disposable {
     private val openEditorContents = ConcurrentHashMap<String, String>()
     private val externalEditBaselines = ConcurrentHashMap<String, String>()
 
+    /**
+     * Durable snapshot used by the browser @ source. It is updated on editor
+     * open/close/selection events and by the existing polling task, so a menu
+     * opened during IDE/JCEF startup never has to race a one-shot VFS query.
+     */
+    @Volatile
+    private var openEditorPathsSnapshot: List<String> = emptyList()
+
     /** Exact hunk data received while an Edit row is active, retained for its completed row. */
     private val toolEditDiffs = ConcurrentHashMap<String, ToolEditDiff>()
 
@@ -127,6 +136,24 @@ class DshProcessManager(private val project: Project) : Disposable {
     private var pluginCommandQueued = false
 
     private val disposed = AtomicBoolean(false)
+
+    init {
+        // Keep the browser-facing @ source in sync with IDE tab/selection events
+        // instead of making every menu opening race FileEditorManager startup.
+        project.messageBus.connect(this).subscribe(
+            FileEditorManagerListener.FILE_EDITOR_MANAGER,
+            object : FileEditorManagerListener {
+                override fun fileOpened(source: FileEditorManager, file: com.intellij.openapi.vfs.VirtualFile) =
+                    refreshOpenEditorPathsSnapshot()
+
+                override fun fileClosed(source: FileEditorManager, file: com.intellij.openapi.vfs.VirtualFile) =
+                    refreshOpenEditorPathsSnapshot()
+
+                override fun selectionChanged(event: com.intellij.openapi.fileEditor.FileEditorManagerEvent) =
+                    refreshOpenEditorPathsSnapshot()
+            },
+        )
+    }
 
     /** Latest published status; safe to read from any thread. */
     fun currentStatus(): DshServerStatus = currentStatus
@@ -506,20 +533,53 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     /** Active editor first, followed by the remaining open tabs in IDE order. */
     private fun openEditorFilesJson(): String {
-        if (project.isDisposed) return "[]"
-        var paths: List<String> = emptyList()
-        ApplicationManager.getApplication().invokeAndWait {
-            if (project.isDisposed) return@invokeAndWait
-            val files = FileEditorManager.getInstance(project)
-            val selected = files.selectedFiles.toList()
-            paths = (selected + files.openFiles).distinct().map { file ->
-                project.basePath?.let { base ->
-                    runCatching { File(base).toPath().relativize(file.toNioPath()).toString() }.getOrNull()
-                } ?: file.path
-            }.map { it.replace('\\', '/') }
-        }
-        return paths.joinToString(prefix = "[", postfix = "]") { jsonString(it) }
+        // Refresh once at request time as a final guard for IDEs that do not
+        // publish a selection event during an editor replacement. Keep the
+        // durable snapshot when the manager reports a transient empty state.
+        val current = captureOpenEditorPaths()
+        if (current.isNotEmpty()) openEditorPathsSnapshot = current
+        val paths = if (current.isNotEmpty()) current else openEditorPathsSnapshot
+        return paths.joinToString(prefix = "[", postfix = "]", transform = ::jsonString)
     }
+
+    /** Refreshes the durable current/open-editor snapshot; safe from any thread. */
+    private fun refreshOpenEditorPathsSnapshot() {
+        if (disposed.get() || project.isDisposed) return
+        val current = captureOpenEditorPaths()
+        if (current.isNotEmpty() || !hasOpenEditorFiles()) openEditorPathsSnapshot = current
+    }
+
+    private fun captureOpenEditorPaths(): List<String> {
+        if (disposed.get() || project.isDisposed) return emptyList()
+        var paths: List<String> = emptyList()
+        val capture = {
+            if (!project.isDisposed) {
+                val files = FileEditorManager.getInstance(project)
+                paths = (files.selectedFiles.toList() + files.openFiles)
+                    .distinct()
+                    .map(::editorPath)
+            }
+        }
+        if (ApplicationManager.getApplication().isDispatchThread) capture()
+        else ApplicationManager.getApplication().invokeAndWait(capture)
+        return paths
+    }
+
+    private fun hasOpenEditorFiles(): Boolean {
+        if (disposed.get() || project.isDisposed) return false
+        var hasFiles = false
+        val capture = {
+            if (!project.isDisposed) hasFiles = FileEditorManager.getInstance(project).openFiles.isNotEmpty()
+        }
+        if (ApplicationManager.getApplication().isDispatchThread) capture()
+        else ApplicationManager.getApplication().invokeAndWait(capture)
+        return hasFiles
+    }
+
+    private fun editorPath(file: com.intellij.openapi.vfs.VirtualFile): String =
+        project.basePath?.let { base ->
+            runCatching { File(base).toPath().relativize(file.toNioPath()).toString() }.getOrNull()
+        }?.replace('\\', '/') ?: file.path.replace('\\', '/')
 
     private fun jsonString(value: String): String = buildString(value.length + 2) {
         append('"')
@@ -611,6 +671,9 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     private fun startOpenEditorRefresh() {
         stopOpenEditorRefresh()
+        // Populate before the first browser page load; the old one-shot HTTP
+        // lookup could return [] during IDE tab restoration.
+        refreshOpenEditorPathsSnapshot()
         openEditorRefreshTask = lifecycle.scheduleWithFixedDelay(
             { refreshOpenEditorsFromDisk() },
             1,
@@ -625,6 +688,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         openEditorContents.clear()
         externalEditBaselines.clear()
         toolEditDiffs.clear()
+        openEditorPathsSnapshot = emptyList()
     }
 
     /**
@@ -639,7 +703,11 @@ class DshProcessManager(private val project: Project) : Disposable {
         ApplicationManager.getApplication().invokeAndWait {
             if (!project.isDisposed) {
                 val documents = FileDocumentManager.getInstance()
-                openFiles = FileEditorManager.getInstance(project).openFiles.map { file ->
+                val editors = FileEditorManager.getInstance(project)
+                openEditorPathsSnapshot = (editors.selectedFiles.toList() + editors.openFiles)
+                    .distinct()
+                    .map(::editorPath)
+                openFiles = editors.openFiles.map { file ->
                     val document = documents.getCachedDocument(file)
                     OpenEditorSnapshot(
                         file = file,
@@ -1324,6 +1392,9 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     /** Entry point for the JCEF-native settings-page bridge. */
     fun openPathFromBrowser(path: String) = openPathInIde(path)
+
+    /** Native JCEF bridge endpoint for the @ source; bypasses the DSH HTTP proxy. */
+    fun openEditorFilesJsonFromBrowser(): String = openEditorFilesJson()
 
     /** Opens the exact before/after fragments carried by a DSH Edit tool result. */
     fun openDiffFromBrowser(path: String, beforeText: String, afterText: String) {

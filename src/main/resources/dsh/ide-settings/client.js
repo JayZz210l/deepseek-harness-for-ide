@@ -21,19 +21,41 @@ window.__ModuleLoader__.load({
     // The IDE may still be restoring editor tabs when the first @ menu is
     // opened. Retry a short-lived empty response so the active tab does not
     // appear only after the user switches files once.
+    var cachedOpenEditorPaths = [];
     async function loadOpenEditorPaths(signal) {
+      // Prefer the native JCEF channel. It reads the IDE-owned snapshot without
+      // depending on DSH proxy routing, page origin, or an in-flight reconnect.
+      if (typeof window.__dshIdeOpenFiles === "function") {
+        try {
+          var nativeValue = await window.__dshIdeOpenFiles();
+          var nativePaths = typeof nativeValue === "string" ? JSON.parse(nativeValue) : nativeValue;
+          if (Array.isArray(nativePaths) && nativePaths.length > 0) {
+            cachedOpenEditorPaths = nativePaths;
+            return nativePaths;
+          }
+        } catch (_nativeError) {
+          // Fall through to the same-origin compatibility endpoint below.
+        }
+      }
       for (var attempt = 0; attempt < 4; attempt++) {
         try {
           var response = await fetch("/__dsh_ide/open-files", {
             signal: signal,
             cache: "no-store",
           });
-          if (!response.ok) return [];
+          if (!response.ok) {
+            if (attempt === 3) return cachedOpenEditorPaths;
+            continue;
+          }
           var paths = await response.json();
-          if (Array.isArray(paths) && (paths.length > 0 || attempt === 3)) return paths;
+          if (Array.isArray(paths) && paths.length > 0) {
+            cachedOpenEditorPaths = paths;
+            return paths;
+          }
+          if (attempt === 3) return cachedOpenEditorPaths;
         } catch (_error) {
           if (signal && signal.aborted) return [];
-          if (attempt === 3) return [];
+          if (attempt === 3) return cachedOpenEditorPaths;
         }
         await new Promise(function (resolve) { setTimeout(resolve, 75 * (attempt + 1)); });
       }

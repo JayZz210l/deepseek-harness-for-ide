@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.18</version>
+    <version>0.1.19</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,8 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.19 — 将当前活动编辑器和已打开标签维护为 IDE 侧持久快照；@ 菜单不再依赖打开瞬间的一次性查询，
+      IDE 启动恢复、切换标签和页面重连时也能稳定显示当前文件。</p>
       <p>0.1.18 — 默认优先使用插件内置、经过兼容验证的 DSH 运行时，不再被 PATH 中的旧版全局 DSH 覆盖；
       修复部分 JetBrains 版本点击 Edit 时从 EDT 读取 Git revision 的线程错误；
       已完成 Edit 行继续打开精确 Diff；IDE 已打开文件的 @ 候选使用明确优先级；
