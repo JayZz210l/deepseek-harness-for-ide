@@ -130,7 +130,7 @@ install it. Marketplace releases follow the same version numbers.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| dsh command | `dsh` | The bundled runtime is used automatically; a `dsh` found on PATH wins. A full path (e.g. `C:\nodejs\node.exe C:\...\dsh\lib\bin.js`) is also accepted |
+| dsh command | `dsh` | The bundled runtime is preferred by default. To use an external version, enter a full path or explicit command (e.g. `C:\nodejs\node.exe C:\...\dsh\lib\bin.js`) |
 | Bind address | `127.0.0.1` | Passed to `dsh web --host` (DSH rejects `0.0.0.0`) |
 | Port | `0` (auto) | `0` = let the OS pick a free port (recommended) |
 | File jump | `auto` | How "open file" resolves: `auto` = DSH composition-native gateway with TCP-proxy fallback; `proxy` = TCP proxy only; `off` = disabled |

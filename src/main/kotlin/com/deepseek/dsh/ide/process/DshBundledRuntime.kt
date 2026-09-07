@@ -16,12 +16,16 @@ import java.nio.file.Paths
  * `dsh` install; only Node.js 18+ is still required to execute it. On Windows,
  * Node resolution also reads the current user/machine environment so an IDE
  * started before Node was installed does not need to be restarted.
- * Resolution order in [DshProcessManager]: explicit command setting → PATH →
- * bundled runtime → npx cache.
+ * Resolution order in [DshProcessManager]: explicit command setting → bundled
+ * runtime for the default bare `dsh` command → PATH/custom command → npx cache.
  */
 object DshBundledRuntime {
 
     private const val BIN_JS = "node_modules/@deepseek-ai/dsh/lib/bin.js"
+
+    /** The default bare command selects the managed runtime, independent of PATH. */
+    internal fun shouldPreferBundled(commandTokens: List<String>): Boolean =
+        commandTokens.firstOrNull()?.equals("dsh", ignoreCase = true) == true
 
     /**
      * Absolute plugin directory, or null when it cannot be resolved (dev layouts).

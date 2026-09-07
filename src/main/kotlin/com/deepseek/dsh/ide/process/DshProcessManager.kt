@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
+import java.util.Locale
 
 /**
  * Per-project owner of the local `dsh web` server process.
@@ -91,6 +92,9 @@ class DshProcessManager(private val project: Project) : Disposable {
     /** Last clean editor text and the pre-external-edit baseline used outside VCS projects. */
     private val openEditorContents = ConcurrentHashMap<String, String>()
     private val externalEditBaselines = ConcurrentHashMap<String, String>()
+
+    /** Exact hunk data received while an Edit row is active, retained for its completed row. */
+    private val toolEditDiffs = ConcurrentHashMap<String, ToolEditDiff>()
 
     /** Guards the one-time native→proxy fallback retry inside [startInternal]. */
     private var nativeRetryDepth = 0
@@ -620,6 +624,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         openEditorRefreshTask = null
         openEditorContents.clear()
         externalEditBaselines.clear()
+        toolEditDiffs.clear()
     }
 
     /**
@@ -1055,7 +1060,8 @@ class DshProcessManager(private val project: Project) : Disposable {
      * Resolves the user-configured dsh command into executable tokens.
      *
      * - explicit paths (containing separators, a drive letter, or a known extension) are used verbatim;
-     * - a bare name is looked up on PATH (with PATHEXT variants on Windows);
+     * - the default bare `dsh` command prefers the plugin's pinned bundled runtime;
+     * - any other bare name is looked up on PATH (with PATHEXT variants on Windows);
      * - when nothing is on PATH, the npm/npx caches are searched: `node <cached bin.js>` is
      *   preferred (no shim quoting pitfalls), the npx `dsh.cmd` shim is the last resort.
      */
@@ -1073,15 +1079,26 @@ class DshProcessManager(private val project: Project) : Disposable {
             return CommandResolution(parsed, CommandResolution.Source.EXPLICIT)
         }
 
+        // A global dsh on PATH must not silently change the runtime, schema, or
+        // client APIs used by the plugin. The default bare command means "use the
+        // managed runtime"; an explicit executable/path remains an opt-in escape
+        // hatch for users who intentionally want an external installation.
+        val bundledBinJs = DshBundledRuntime.binJs()
+        if (DshBundledRuntime.shouldPreferBundled(parsed) && bundledBinJs != null) {
+            if (nodeExecutable != null) {
+                addLog(DshBundle.message("dsh.proc.locatingBundled", DshBundledRuntime.version() ?: "?"))
+                return CommandResolution(listOf(nodeExecutable, bundledBinJs.toString()) + tail, CommandResolution.Source.BUNDLED)
+            }
+            addLog(DshBundle.message("dsh.proc.bundledNeedsNode"))
+        }
+
         findOnPath(exe)?.let { found ->
             addLog(DshBundle.message("dsh.proc.locating", found))
             return CommandResolution(listOf(found) + tail, CommandResolution.Source.PATH)
         }
 
-        // Bundled runtime: the plugin ships its own copy of DeepSeek Harness, so a
-        // machine without a global `dsh` install still works. The Node.js executable
-        // is bundled too — PATH wins, the plugin's node-runtime is the fallback.
-        val bundledBinJs = DshBundledRuntime.binJs()
+        // If a custom bare command was not found on PATH, retain the bundled
+        // runtime as the general availability fallback.
         if (bundledBinJs != null) {
             if (nodeExecutable != null) {
                 addLog(DshBundle.message("dsh.proc.locatingBundled", DshBundledRuntime.version() ?: "?"))
@@ -1310,6 +1327,11 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     /** Opens the exact before/after fragments carried by a DSH Edit tool result. */
     fun openDiffFromBrowser(path: String, beforeText: String, afterText: String) {
+        // Some DSH frontends expose the hunk-backed file button only while the
+        // tool is running. Keep the authoritative hunk so clicking the same
+        // completed Edit row can still open the exact Diff instead of falling
+        // back to a plain path open after the row settles.
+        toolEditDiffs[pathKey(path)] = ToolEditDiff(beforeText, afterText)
         ApplicationManager.getApplication().invokeLater {
             if (disposed.get() || project.isDisposed) return@invokeLater
             val file = resolveIdeFile(path)
@@ -1372,13 +1394,30 @@ class DshProcessManager(private val project: Project) : Disposable {
                 return@invokeLater
             }
 
+            val mode = DshSettingsState.getInstance().current.fileOpenMode.ifBlank { "auto" }
+            val exactEdit = toolEditDiffs.remove(pathKey(virtualFile.path))
+            if (exactEdit != null) {
+                // Exact Edit hunks are authoritative and should work even when
+                // the VCS change list has not caught up with an atomic write.
+                if (!showFileDiff(
+                        virtualFile,
+                        exactEdit.beforeText,
+                        DshBundle.message("dsh.diff.beforeEdit"),
+                    )
+                ) {
+                    openFileInEditor(virtualFile)
+                }
+                return@invokeLater
+            }
+
             // Evolution: a file opened from the DeepSeek Harness UI can land in the
             // IDE's native diff viewer instead of the plain editor. `auto` prefers the
             // VCS baseline diff when the file is modified (the agent just edited it);
             // `file` keeps the old behavior.
-            val mode = DshSettingsState.getInstance().current.fileOpenMode.ifBlank { "auto" }
-            if (mode == "file" || (!openVcsDiff(virtualFile) && !openExternalEditDiff(virtualFile))) {
+            if (mode == "file") {
                 openFileInEditor(virtualFile)
+            } else {
+                openDiffOrFileAsync(virtualFile)
             }
         }
     }
@@ -1434,55 +1473,94 @@ class DshProcessManager(private val project: Project) : Disposable {
         FileEditorManager.getInstance(project).openFile(virtualFile, true)
     }
 
-    /** Opens IntelliJ's native diff of the working file against its VCS baseline. */
-    private fun openVcsDiff(virtualFile: com.intellij.openapi.vfs.VirtualFile): Boolean {
+    private fun pathKey(path: String): String =
+        resolveIdeFile(path).absoluteFile.normalize().path.lowercase(Locale.ROOT)
+
+    private data class ToolEditDiff(
+        val beforeText: String,
+        val afterText: String,
+    )
+
+    /**
+     * Loads potentially blocking VCS/VFS content away from the EDT, then returns to
+     * the EDT to create and show the native diff. Newer JetBrains builds explicitly
+     * reject GitContentRevision.getContent() on the event-dispatch thread.
+     */
+    private fun openDiffOrFileAsync(virtualFile: com.intellij.openapi.vfs.VirtualFile) {
         val change = try {
             ChangeListManager.getInstance(project).getChange(virtualFile)
         } catch (error: Throwable) {
             log.warn("DeepSeek Harness: VCS change lookup failed for ${virtualFile.path}", error)
             null
-        } ?: return false
-        if (change.type == Change.Type.DELETED) return false
-        val beforeRevision = change.beforeRevision ?: return false
-        return try {
-            val beforeText = beforeRevision.content ?: return false
-            val factory = DiffContentFactory.getInstance()
-            val request = SimpleDiffRequest(
-                DshBundle.message("dsh.diff.title", virtualFile.name),
-                factory.create(project, beforeText),
-                factory.create(project, virtualFile),
-                DshBundle.message("dsh.diff.vcsBefore"),
-                DshBundle.message("dsh.diff.workspace"),
-            )
-            DiffManager.getInstance().showDiff(project, request)
-            true
-        } catch (error: Throwable) {
-            log.warn("DeepSeek Harness: VCS diff failed for ${virtualFile.path}", error)
-            false
+        }
+        val beforeRevision = change
+            ?.takeUnless { it.type == Change.Type.DELETED }
+            ?.beforeRevision
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val vcsBeforeText = beforeRevision?.let { revision ->
+                try {
+                    revision.content
+                } catch (error: Throwable) {
+                    log.warn("DeepSeek Harness: VCS content load failed for ${virtualFile.path}", error)
+                    null
+                }
+            }
+            val externalBeforeText = if (vcsBeforeText == null) {
+                externalEditBaselines.remove(virtualFile.path)
+            } else {
+                null
+            }
+            val externalCurrentText = externalBeforeText?.let {
+                runCatching { String(virtualFile.contentsToByteArray(), virtualFile.charset) }
+                    .onFailure { error ->
+                        log.warn("DeepSeek Harness: external edit content load failed for ${virtualFile.path}", error)
+                    }
+                    .getOrNull()
+            }
+
+            ApplicationManager.getApplication().invokeLater {
+                if (disposed.get() || project.isDisposed || !virtualFile.isValid) return@invokeLater
+                val shown = when {
+                    vcsBeforeText != null -> showFileDiff(
+                        virtualFile,
+                        vcsBeforeText,
+                        DshBundle.message("dsh.diff.vcsBefore"),
+                    )
+                    externalBeforeText != null &&
+                        externalCurrentText != null &&
+                        externalBeforeText != externalCurrentText -> showFileDiff(
+                            virtualFile,
+                            externalBeforeText,
+                            DshBundle.message("dsh.diff.beforeEdit"),
+                        )
+                    else -> false
+                }
+                if (!shown) openFileInEditor(virtualFile)
+            }
         }
     }
 
-    /** Opens a native Diff for externally edited open files even when the project has no VCS. */
-    private fun openExternalEditDiff(virtualFile: com.intellij.openapi.vfs.VirtualFile): Boolean {
-        val beforeText = externalEditBaselines.remove(virtualFile.path) ?: return false
-        val currentText = runCatching { String(virtualFile.contentsToByteArray(), virtualFile.charset) }.getOrNull()
-        if (currentText == null || beforeText == currentText) return false
-        return try {
+    /** Creates and displays diff UI; must be called on the EDT. */
+    private fun showFileDiff(
+        virtualFile: com.intellij.openapi.vfs.VirtualFile,
+        beforeText: String,
+        beforeTitle: String,
+    ): Boolean = try {
             val factory = DiffContentFactory.getInstance()
             val request = SimpleDiffRequest(
                 DshBundle.message("dsh.diff.title", virtualFile.name),
                 factory.create(project, beforeText),
                 factory.create(project, virtualFile),
-                DshBundle.message("dsh.diff.beforeEdit"),
+                beforeTitle,
                 DshBundle.message("dsh.diff.workspace"),
             )
             DiffManager.getInstance().showDiff(project, request)
             true
         } catch (error: Throwable) {
-            log.warn("DeepSeek Harness: external edit diff failed for ${virtualFile.path}", error)
+            log.warn("DeepSeek Harness: native diff failed for ${virtualFile.path}", error)
             false
         }
-    }
 
     private fun notify(content: String, type: NotificationType) {
         // Safe from any thread: notifications must be created and shown on the EDT.

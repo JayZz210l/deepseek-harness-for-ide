@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.16</version>
+    <version>0.1.18</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.18 — 默认优先使用插件内置、经过兼容验证的 DSH 运行时，不再被 PATH 中的旧版全局 DSH 覆盖；
+      修复部分 JetBrains 版本点击 Edit 时从 EDT 读取 Git revision 的线程错误；
+      已完成 Edit 行继续打开精确 Diff；IDE 已打开文件的 @ 候选使用明确优先级；
+      移除代理层五分钟硬截止，合法的「询问用户」卡片会持续等待用户回答。</p>
       <p>0.1.17 — 修复 AI 写入后 IDE 编辑器不刷新、Edit 文件名未打开原生 Diff、DSH 页面部分文件入口绕过 IDE、
       「询问用户」选择框空闲后消失，以及首次 @ 引用和外部 DSH 运行时的 IDE 文件候选未正确加载等问题。</p>
       <p>0.1.16 — 内置 DeepSeek Harness 升级到 0.1.2-rc.1；顶部栏新增图标化控制、恢复默认插件和直接执行

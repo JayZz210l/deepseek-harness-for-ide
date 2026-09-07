@@ -335,7 +335,11 @@ class DshApiProxy(
         return map
     }
 
-    /** Bidirectional byte pump; returns when both directions are finished or timed out. */
+    /**
+     * Bidirectional byte pump; returns only when both peers finish. Pending user
+     * questions may legitimately remain open for longer than five minutes, so a
+     * proxy-level deadline would abort an otherwise healthy Remote Event session.
+     */
     private fun pump(target: Socket, client: Socket) {
         val t2c = Thread({ copy(target.getInputStream(), client.getOutputStream()); runCatching { client.shutdownOutput() } })
         val c2t = Thread({ copy(client.getInputStream(), target.getOutputStream()); runCatching { target.shutdownOutput() } })
@@ -343,8 +347,8 @@ class DshApiProxy(
         c2t.isDaemon = true
         t2c.start()
         c2t.start()
-        t2c.join(300_000)
-        c2t.join(300_000)
+        t2c.join()
+        c2t.join()
     }
 
     private fun copy(input: InputStream, output: OutputStream) {

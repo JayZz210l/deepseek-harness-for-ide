@@ -72,6 +72,9 @@ window.__ModuleLoader__.load({
         var openEditorsSource = {
           trigger: "@",
           name: "ide-open-editors",
+          // The stock file/session source has order 0. Use an explicit lower
+          // order instead of depending on non-deterministic module load order.
+          order: -1000,
           showGroupTitle: false,
           candidates: async function (_session, options) {
             var query = (options.query || "").toLowerCase();

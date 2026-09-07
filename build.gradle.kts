@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.17"
+version = "0.1.18"
 
 repositories {
     mavenCentral()

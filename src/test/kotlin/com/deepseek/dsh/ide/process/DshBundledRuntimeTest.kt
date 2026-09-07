@@ -23,4 +23,17 @@ class DshBundledRuntimeTest {
             DshBundledRuntime.pluginDirFromCodeSource(pluginJar.toURI().toURL()),
         )
     }
+
+    @Test
+    fun `default bare dsh command prefers bundled runtime`() {
+        assertEquals(true, DshBundledRuntime.shouldPreferBundled(listOf("dsh")))
+        assertEquals(true, DshBundledRuntime.shouldPreferBundled(listOf("DSH", "--trace")))
+    }
+
+    @Test
+    fun `explicit external commands do not select bundled runtime`() {
+        assertEquals(false, DshBundledRuntime.shouldPreferBundled(listOf("C:\\tools\\dsh.cmd")))
+        assertEquals(false, DshBundledRuntime.shouldPreferBundled(listOf("node", "C:\\tools\\dsh\\lib\\bin.js")))
+        assertEquals(false, DshBundledRuntime.shouldPreferBundled(listOf("custom-dsh")))
+    }
 }
