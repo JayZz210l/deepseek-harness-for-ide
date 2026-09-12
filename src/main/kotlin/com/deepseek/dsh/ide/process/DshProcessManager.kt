@@ -18,6 +18,8 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.fileTypes.FileTypeRegistry
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vcs.changes.Change
@@ -1391,7 +1393,7 @@ class DshProcessManager(private val project: Project) : Disposable {
     // ---------------------------------------------------------------------------------------------
 
     /** Entry point for the JCEF-native settings-page bridge. */
-    fun openPathFromBrowser(path: String) = openPathInIde(path)
+    fun openPathFromBrowser(path: String, line: Int? = null) = openPathInIde(path, line)
 
     /** Native JCEF bridge endpoint for the @ source; bypasses the DSH HTTP proxy. */
     fun openEditorFilesJsonFromBrowser(): String = openEditorFilesJson()
@@ -1410,10 +1412,15 @@ class DshProcessManager(private val project: Project) : Disposable {
             val displayName = virtualFile?.name ?: file.name.ifBlank { path }
             try {
                 val factory = DiffContentFactory.getInstance()
+                // Text-only DiffContent is classified as diff.txt, which prevents the IDE from
+                // applying the target language's syntax highlighter. Preserve the edited file's
+                // type for both snapshots, including the short interval before VFS sees a new file.
+                val fileType = virtualFile?.fileType
+                    ?: FileTypeRegistry.getInstance().getFileTypeByFileName(displayName)
                 val request = SimpleDiffRequest(
                     DshBundle.message("dsh.diff.title", displayName),
-                    factory.create(project, beforeText),
-                    factory.create(project, afterText),
+                    factory.create(project, beforeText, fileType),
+                    factory.create(project, afterText, fileType),
                     DshBundle.message("dsh.diff.beforeEdit"),
                     DshBundle.message("dsh.diff.afterEdit"),
                 )
@@ -1425,7 +1432,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         }
     }
 
-    private fun openPathInIde(path: String) {
+    private fun openPathInIde(path: String, line: Int? = null) {
         ApplicationManager.getApplication().invokeLater {
             if (disposed.get() || project.isDisposed) return@invokeLater
             // The "For IDE" settings-section buttons travel through host.openPath
@@ -1476,7 +1483,7 @@ class DshProcessManager(private val project: Project) : Disposable {
                         DshBundle.message("dsh.diff.beforeEdit"),
                     )
                 ) {
-                    openFileInEditor(virtualFile)
+                    openFileInEditor(virtualFile, line)
                 }
                 return@invokeLater
             }
@@ -1486,9 +1493,9 @@ class DshProcessManager(private val project: Project) : Disposable {
             // VCS baseline diff when the file is modified (the agent just edited it);
             // `file` keeps the old behavior.
             if (mode == "file") {
-                openFileInEditor(virtualFile)
+                openFileInEditor(virtualFile, line)
             } else {
-                openDiffOrFileAsync(virtualFile)
+                openDiffOrFileAsync(virtualFile, line)
             }
         }
     }
@@ -1540,8 +1547,15 @@ class DshProcessManager(private val project: Project) : Disposable {
         }
     }
 
-    private fun openFileInEditor(virtualFile: com.intellij.openapi.vfs.VirtualFile) {
-        FileEditorManager.getInstance(project).openFile(virtualFile, true)
+    private fun openFileInEditor(virtualFile: com.intellij.openapi.vfs.VirtualFile, line: Int? = null) {
+        if (line != null && line > 0) {
+            FileEditorManager.getInstance(project).openTextEditor(
+                OpenFileDescriptor(project, virtualFile, line - 1, 0),
+                true,
+            )
+        } else {
+            FileEditorManager.getInstance(project).openFile(virtualFile, true)
+        }
     }
 
     private fun pathKey(path: String): String =
@@ -1557,7 +1571,7 @@ class DshProcessManager(private val project: Project) : Disposable {
      * the EDT to create and show the native diff. Newer JetBrains builds explicitly
      * reject GitContentRevision.getContent() on the event-dispatch thread.
      */
-    private fun openDiffOrFileAsync(virtualFile: com.intellij.openapi.vfs.VirtualFile) {
+    private fun openDiffOrFileAsync(virtualFile: com.intellij.openapi.vfs.VirtualFile, line: Int? = null) {
         val change = try {
             ChangeListManager.getInstance(project).getChange(virtualFile)
         } catch (error: Throwable) {
@@ -1607,7 +1621,7 @@ class DshProcessManager(private val project: Project) : Disposable {
                         )
                     else -> false
                 }
-                if (!shown) openFileInEditor(virtualFile)
+                if (!shown) openFileInEditor(virtualFile, line)
             }
         }
     }
@@ -1621,7 +1635,7 @@ class DshProcessManager(private val project: Project) : Disposable {
             val factory = DiffContentFactory.getInstance()
             val request = SimpleDiffRequest(
                 DshBundle.message("dsh.diff.title", virtualFile.name),
-                factory.create(project, beforeText),
+                factory.create(project, beforeText, virtualFile.fileType),
                 factory.create(project, virtualFile),
                 beforeTitle,
                 DshBundle.message("dsh.diff.workspace"),

@@ -24,12 +24,12 @@ class NodeExecutableResolverTest {
                     freshPathRead = true
                     "\"$currentDir\""
                 },
-                versionProbe = { "v22.14.0" },
+                versionProbe = { "v22.19.0" },
             ).resolve(bundledNode = null)
 
             assertTrue(freshPathRead)
             assertEquals(node.absolutePath, result.executable)
-            assertEquals("v22.14.0", result.version)
+            assertEquals("v22.19.0", result.version)
             assertEquals(NodeExecutableResolver.Source.CURRENT_WINDOWS_ENVIRONMENT, result.source)
         } finally {
             node.delete()
@@ -52,7 +52,7 @@ class NodeExecutableResolverTest {
                     freshPathRead = true
                     null
                 },
-                versionProbe = { "v20.18.3" },
+                versionProbe = { "v22.19.0" },
             ).resolve(bundledNode = null)
 
             assertFalse(freshPathRead)
@@ -62,6 +62,14 @@ class NodeExecutableResolverTest {
             node.delete()
             currentDir.toFile().delete()
         }
+    }
+
+    @Test
+    fun `enforces the bundled DSH minimum Node release`() {
+        assertFalse(NodeExecutableResolver.isSupportedVersion("v22.18.9"))
+        assertTrue(NodeExecutableResolver.isSupportedVersion("v22.19.0"))
+        assertFalse(NodeExecutableResolver.isSupportedVersion("v23.6.0"))
+        assertTrue(NodeExecutableResolver.isSupportedVersion("v24.0.0"))
     }
 
     @Test

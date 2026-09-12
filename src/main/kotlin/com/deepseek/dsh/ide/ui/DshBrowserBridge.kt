@@ -38,13 +38,17 @@ class DshBrowserBridge(private val project: Project) : Disposable {
         ideActionQuery = JBCefJSQuery.create(value as JBCefBrowserBase).also { query ->
             query.addHandler { payload ->
                 val diff = decodeDiffPayload(payload)
-                if (diff == null) {
-                    project.service<DshProcessManager>().openPathFromBrowser(payload)
-                } else {
+                val open = decodeOpenPayload(payload)
+                if (diff != null) {
                     project.service<DshProcessManager>().openDiffFromBrowser(
                         diff.path,
                         diff.beforeText,
                         diff.afterText,
+                    )
+                } else {
+                    project.service<DshProcessManager>().openPathFromBrowser(
+                        open?.path ?: payload,
+                        open?.line,
                     )
                 }
                 JBCefJSQuery.Response("{\"accepted\":true}")
@@ -84,7 +88,7 @@ class DshBrowserBridge(private val project: Project) : Disposable {
     private fun installIdeActionBridge(target: JBCefBrowser) {
         val query = ideActionQuery ?: return
         val invoke = query.inject(
-            "String(path)",
+            "String(payload)",
             "function(response) { resolve(response); }",
             "function(code, message) { reject(new Error(message || ('IDE bridge error ' + code))); }",
         )
@@ -99,7 +103,18 @@ class DshBrowserBridge(private val project: Project) : Disposable {
             "function(code, message) { reject(new Error(message || ('IDE files bridge error ' + code))); }",
         ) ?: "resolve([])"
         val script = """
-            window.__dshIdeOpenPath = function(path) {
+            window.__dshIdeOpenPath = function(path, line) {
+              const encode = function(value) {
+                const bytes = new TextEncoder().encode(String(value));
+                let binary = '';
+                for (let offset = 0; offset < bytes.length; offset += 8192) {
+                  binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 8192));
+                }
+                return btoa(binary);
+              };
+              const payload = Number.isInteger(line) && line > 0
+                ? ['dsh-ide-open-v1', encode(path), String(line)].join('\n')
+                : String(path);
               return new Promise(function(resolve, reject) {
                 $invoke
               });
@@ -171,9 +186,9 @@ class DshBrowserBridge(private val project: Project) : Disposable {
                 }
               };
               const localPathFromToolButton = function(element) {
-                // The bundled ToolRow forwards authoritative hunk data through
-                // __dshIdeOpenDiff itself; do not pre-empt its React handler.
-                if (window.__dshIdeToolDiffBridgeAvailable === true) return null;
+                // The bundled ToolRow routes both ordinary file opens and
+                // authoritative Edit hunks itself; do not pre-empt its React handler.
+                if (window.__dshIdeToolFileBridgeAvailable === true) return null;
                 const button = element.closest('button');
                 if (!button || !button.closest('[data-tool]')) return null;
                 // CSS-module prefixes change between DSH builds; the semantic
@@ -339,6 +354,23 @@ class DshBrowserBridge(private val project: Project) : Disposable {
         val beforeText: String,
         val afterText: String,
     )
+
+    private data class BrowserOpenPayload(
+        val path: String,
+        val line: Int?,
+    )
+
+    private fun decodeOpenPayload(payload: String): BrowserOpenPayload? {
+        if (!payload.startsWith("dsh-ide-open-v1\n")) return null
+        val parts = payload.split('\n', limit = 3)
+        if (parts.size != 3) return null
+        return runCatching {
+            BrowserOpenPayload(
+                path = String(Base64.getDecoder().decode(parts[1]), StandardCharsets.UTF_8),
+                line = parts[2].toIntOrNull()?.takeIf { it > 0 },
+            )
+        }.getOrNull()
+    }
 
     private fun decodeDiffPayload(payload: String): BrowserDiffPayload? {
         if (!payload.startsWith("dsh-ide-diff-v1\n")) return null

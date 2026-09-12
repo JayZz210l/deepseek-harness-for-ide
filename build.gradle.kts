@@ -2,6 +2,7 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.tasks.BuildPluginTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.time.LocalDate
+import java.util.Base64
 
 plugins {
     id("org.jetbrains.kotlin.jvm") version "2.1.20"
@@ -9,7 +10,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.19"
+version = "0.1.20"
 
 repositories {
     mavenCentral()
@@ -100,7 +101,7 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
-val bundledDshVersion = "0.1.2-rc.1"
+val bundledDshVersion = "0.1.5-rc.2"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
 
@@ -116,7 +117,7 @@ fun findDshRuntimeRoot(): File? {
     // means `clean` does not force a runtime download. Do not use pnpm's
     // virtual store as the archive source: it retains many package snapshots
     // under .pnpm and inflates the plugin by roughly five times.
-    val localFlatCache = project.file(".build-input/dsh-0.1.2-rc.1-runtime")
+    val localFlatCache = project.file(".build-input/dsh-$bundledDshVersion-runtime")
     if (readDshRuntimeVersion(localFlatCache) == bundledDshVersion) return localFlatCache
 
     val candidates = mutableListOf<File>()
@@ -174,6 +175,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
         // The ide-settings resources are read inside doLast — declare them as inputs so
         // a change re-runs the copy instead of being skipped as UP-TO-DATE.
         inputs.dir(project.file("src/main/resources/dsh/ide-settings"))
+        inputs.file(project.file("src/main/resources/icons/dshPluginIcon.png"))
         doLast {
             destinationDir.resolve("dsh-runtime/version.txt").writeText("$runtimeVersion\n")
             // Community plugin managers discover the CLI on PATH instead of
@@ -195,7 +197,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             )
             if (nativeCommand.isFile) {
                 var source = nativeCommand.readText()
-                val helperAnchor = "function openNativePath(path, signal, internals = {}) {"
+                val helperAnchor = "function openNativePath(path, signal, internals = {}) {\n\treturn openNativePathWithIntent(path, signal, \"default\", internals);\n}"
                 val helper = """
                     async function openInJetBrainsIde(path, signal, internals) {
                       const bridgeUrl = process.env.DSH_IDE_BRIDGE_URL;
@@ -215,16 +217,20 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                     }
                     async function openNativePath(path, signal, internals = {}) {
                       if (await openInJetBrainsIde(path, signal, internals)) return;
+                      return openNativePathWithIntent(path, signal, "default", internals);
+                    }
                 """.trimIndent()
                 check(source.contains(helperAnchor)) {
                     "bundleDshRuntime: dsh-native-command openNativePath seam changed"
                 }
                 source = source.replaceFirst(helperAnchor, helper)
 
-                val textAnchor = "function openNativeTextFile(path, signal, internals = {}) {"
+                val textAnchor = "function openNativeTextFile(path, signal, internals = {}) {\n\treturn openNativePathWithIntent(path, signal, \"text-editor\", internals);\n}"
                 val textReplacement = """
                     async function openNativeTextFile(path, signal, internals = {}) {
                       if (await openInJetBrainsIde(path, signal, internals)) return;
+                      return openNativePathWithIntent(path, signal, "text-editor", internals);
+                    }
                 """.trimIndent()
                 check(source.contains(textAnchor)) {
                     "bundleDshRuntime: dsh-native-command openNativeTextFile seam changed"
@@ -246,18 +252,33 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                 val anchor = """
                     \t\t\tconst openFile = (event) => {
                     \t\t\t\tevent.stopPropagation();
-                    \t\t\t\tif (filePath !== void 0) onOpenFile?.(filePath);
+                    \t\t\t\tif (filePath === void 0 || onOpenFile === void 0) return;
+                    \t\t\t\tif (filePathLine === void 0) onOpenFile(filePath);
+                    \t\t\t\telse onOpenFile(filePath, { line: filePathLine });
                     \t\t\t};
                 """.trimIndent().replace("\\t", "\t")
                 val replacement = """
                     \t\t\twindow.__dshIdeToolDiffBridgeAvailable = true;
+                    \t\t\twindow.__dshIdeToolFileBridgeAvailable = true;
                     \t\t\tconst openFile = (event) => {
                     \t\t\t\tevent.stopPropagation();
                     \t\t\t\tif (filePath !== void 0 && diffBody !== null && typeof window.__dshIdeOpenDiff === "function") {
-                    \t\t\t\t\twindow.__dshIdeOpenDiff(filePath, diffBody.card.diffs).catch(() => onOpenFile?.(filePath));
+                    \t\t\t\t\twindow.__dshIdeOpenDiff(filePath, diffBody.card.diffs).catch(() => {
+                    \t\t\t\t\t\tif (filePathLine === void 0) onOpenFile?.(filePath);
+                    \t\t\t\t\t\telse onOpenFile?.(filePath, { line: filePathLine });
+                    \t\t\t\t\t});
                     \t\t\t\t\treturn;
                     \t\t\t\t}
-                    \t\t\t\tif (filePath !== void 0) onOpenFile?.(filePath);
+                    \t\t\t\tif (filePath !== void 0 && typeof window.__dshIdeOpenPath === "function") {
+                    \t\t\t\t\twindow.__dshIdeOpenPath(filePath, filePathLine).catch(() => {
+                    \t\t\t\t\t\tif (filePathLine === void 0) onOpenFile?.(filePath);
+                    \t\t\t\t\t\telse onOpenFile?.(filePath, { line: filePathLine });
+                    \t\t\t\t\t});
+                    \t\t\t\t\treturn;
+                    \t\t\t\t}
+                    \t\t\t\tif (filePath === void 0 || onOpenFile === void 0) return;
+                    \t\t\t\tif (filePathLine === void 0) onOpenFile(filePath);
+                    \t\t\t\telse onOpenFile(filePath, { line: filePathLine });
                     \t\t\t};
                 """.trimIndent().replace("\\t", "\t")
                 check(source.contains(anchor)) {
@@ -266,6 +287,78 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                 toolClient.writeText(source.replaceFirst(anchor, replacement))
             } else {
                 throw GradleException("bundleDshRuntime: dsh-client-ui-tool entry is missing")
+            }
+
+            // DSH 0.1.5 routes every chat-owned local file open through its new
+            // right-sidebar document preview. Replace that one central opener so
+            // Read/Write/Edit tool rows, produced-file chips, delivered-file preview
+            // cards, and inline produced-file mentions all prefer the IDE.
+            val chatClient = destinationDir.resolve(
+                "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js",
+            )
+            if (chatClient.isFile) {
+                val source = chatClient.readText()
+                val anchor = """
+                    \t\t\t\t\t\t\topenFile: async (path, options) => {
+                    \t\t\t\t\t\t\t\tconst cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
+                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, path);
+                    \t\t\t\t\t\t\t\tif (options?.line === void 0) ctx.sidebarRight.openResource(url);
+                    \t\t\t\t\t\t\t\telse ctx.sidebarRight.openResource(url, { params: { line: options.line } });
+                    \t\t\t\t\t\t\t\tawait Promise.resolve();
+                    \t\t\t\t\t\t\t},
+                """.trimIndent().replace("\\t", "\t")
+                val replacement = """
+                    \t\t\t\t\t\t\topenFile: async (path, options) => {
+                    \t\t\t\t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
+                    \t\t\t\t\t\t\t\t\ttry {
+                    \t\t\t\t\t\t\t\t\t\tawait window.__dshIdeOpenPath(path, options?.line);
+                    \t\t\t\t\t\t\t\t\t\treturn;
+                    \t\t\t\t\t\t\t\t\t} catch {}
+                    \t\t\t\t\t\t\t\t}
+                    \t\t\t\t\t\t\t\tconst cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
+                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, path);
+                    \t\t\t\t\t\t\t\tif (options?.line === void 0) ctx.sidebarRight.openResource(url);
+                    \t\t\t\t\t\t\t\telse ctx.sidebarRight.openResource(url, { params: { line: options.line } });
+                    \t\t\t\t\t\t\t\tawait Promise.resolve();
+                    \t\t\t\t\t\t\t},
+                """.trimIndent().replace("\\t", "\t")
+                check(source.contains(anchor)) {
+                    "bundleDshRuntime: dsh-client-ui-chat central file-open seam changed"
+                }
+                chatClient.writeText(source.replaceFirst(anchor, replacement))
+            } else {
+                throw GradleException("bundleDshRuntime: dsh-client-ui-chat entry is missing")
+            }
+
+            // The Files sidebar bypasses the chat opener and directly opens a
+            // dsh-resource tab, so route its file rows to the IDE separately.
+            val sidebarFilesClient = destinationDir.resolve(
+                "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js",
+            )
+            if (sidebarFilesClient.isFile) {
+                val source = sidebarFilesClient.readText()
+                val anchor = """
+                    \t\t\t\tonOpen: (path) => {
+                    \t\t\t\t\ttabActions.openResource(fileAddressFor(sessionId, state.root, path));
+                    \t\t\t\t},
+                """.trimIndent().replace("\\t", "\t")
+                val replacement = """
+                    \t\t\t\tonOpen: (path) => {
+                    \t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
+                    \t\t\t\t\t\twindow.__dshIdeOpenPath(path).catch(() => {
+                    \t\t\t\t\t\t\ttabActions.openResource(fileAddressFor(sessionId, state.root, path));
+                    \t\t\t\t\t\t});
+                    \t\t\t\t\t\treturn;
+                    \t\t\t\t\t}
+                    \t\t\t\t\ttabActions.openResource(fileAddressFor(sessionId, state.root, path));
+                    \t\t\t\t},
+                """.trimIndent().replace("\\t", "\t")
+                check(source.contains(anchor)) {
+                    "bundleDshRuntime: dsh-client-ui-sidebar-files open seam changed"
+                }
+                sidebarFilesClient.writeText(source.replaceFirst(anchor, replacement))
+            } else {
+                throw GradleException("bundleDshRuntime: dsh-client-ui-sidebar-files entry is missing")
             }
 
             // Client settings package: the "For IDE" section in the web UI settings page.
@@ -279,7 +372,14 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             File(resBase, "index.js").copyTo(File(pkgDir, "index.js"), overwrite = true)
             val clientJs = File(resBase, "client.js").readText()
                 .replace("__PLUGIN_VERSION__", project.version.toString())
+                .replace("__DSH_VERSION__", bundledDshVersion)
                 .replace("__BUILD_DATE__", LocalDate.now().toString())
+                .replace(
+                    "__PLUGIN_ICON_BASE64__",
+                    Base64.getEncoder().encodeToString(
+                        project.file("src/main/resources/icons/dshPluginIcon.png").readBytes(),
+                    ),
+                )
                 .replace("__FEEDBACK_URL__", "https://github.com/JayZz210l/deepseek-harness-for-ide/issues")
                 .replace("__GITHUB_URL__", "https://github.com/JayZz210l/deepseek-harness-for-ide")
             File(pkgDir, "client.js").writeText(clientJs)

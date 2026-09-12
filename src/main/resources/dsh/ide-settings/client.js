@@ -3,8 +3,9 @@
 // a real feedback button and a GitHub button. Clicks go through the host's
 // openPath unary call — the IDE plugin recognizes http(s) URLs and opens
 // them in the system browser. Classic-script factory form
-// (window.__ModuleLoader__); tokens __PLUGIN_VERSION__ / __BUILD_DATE__ /
-// __FEEDBACK_URL__ / __GITHUB_URL__ are substituted by the Gradle build.
+// (window.__ModuleLoader__); tokens __PLUGIN_VERSION__ / __DSH_VERSION__ /
+// __BUILD_DATE__ / __PLUGIN_ICON_BASE64__ / __FEEDBACK_URL__ / __GITHUB_URL__
+// are substituted by Gradle.
 window.__ModuleLoader__.load({
   id: "dsh-ide-settings",
   factory: (require) => {
@@ -64,7 +65,9 @@ window.__ModuleLoader__.load({
 
     var INFO = {
       version: "__PLUGIN_VERSION__",
+      dshVersion: "__DSH_VERSION__",
       buildDate: "__BUILD_DATE__",
+      iconUrl: "data:image/png;base64,__PLUGIN_ICON_BASE64__",
       feedbackUrl: "__FEEDBACK_URL__",
       githubUrl: "__GITHUB_URL__",
       // host.openPath markers recognized by the JetBrains plugin.
@@ -175,51 +178,137 @@ window.__ModuleLoader__.load({
       }
 
       function ForIdeSection() {
-        var state = React.useState("");
+        var state = React.useState(null);
         var actionStatus = state[0];
         var setActionStatus = state[1];
         function runAction(url) {
-          setActionStatus("正在发送到 IDE… / Sending to IDE…");
+          setActionStatus({ tone: "progress", text: "正在发送到 IDE… / Sending to IDE…" });
           openExternal(url).then(function () {
-            setActionStatus("操作已交给 IDE 处理 / Request accepted by IDE");
+            setActionStatus({ tone: "success", text: "操作已交给 IDE 处理 / Request accepted by IDE" });
           }).catch(function (error) {
-            setActionStatus("操作失败 / Failed: " + error.message);
+            setActionStatus({ tone: "error", text: "操作失败 / Failed: " + error.message });
             if (typeof window !== "undefined" && /^https?:/.test(url)) window.open(url, "_blank");
           });
         }
-        var rows = [
-          ["插件版本 Version", INFO.version],
-          ["构建日期 Build date", INFO.buildDate],
-        ];
-        return h("div", { style: { display: "flex", flexDirection: "column", gap: "12px", padding: "4px 0" } },
-          h("p", { style: { margin: 0, fontSize: "13px" } },
-            "Deepseek Harness For IDE —— 把 DeepSeek Harness 嵌入 JetBrains IDE 的插件。"),
-          h("p", { style: { margin: 0, fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } },
-            "同步预设：把 ~/.dsh/.agent-presets 的预设复制到当前项目，无需重启。同步插件 / 恢复默认插件需要重启 DSH 服务，期间界面暂时不可用属于正常现象，请耐心等待。"),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
-            rows.map(function (row) {
-              return h("div", { key: row[0], style: { display: "flex", gap: "12px", fontSize: "13px" } },
-                h("span", { style: { color: "var(--dsw-alias-label-secondary)", minWidth: "150px" } }, row[0]),
-                h("span", null, row[1]),
-              );
-            }),
+
+        function VersionBadge(label, value, emphasized) {
+          return h("div", { style: {
+            display: "flex", alignItems: "center", gap: "7px", padding: "6px 10px",
+            borderRadius: "999px", border: "1px solid var(--dsw-alias-border-l2)",
+            background: emphasized ? "var(--dsw-alias-button-primary-dimmed)" : "var(--dsw-alias-bg-layer-1)",
+            whiteSpace: "nowrap",
+          } },
+            h("span", { style: { fontSize: "11px", color: "var(--dsw-alias-label-secondary)" } }, label),
+            h("span", { style: { fontSize: "12px", fontWeight: 600, color: emphasized ? "var(--dsw-alias-brand-text)" : "var(--dsw-alias-label-primary)" } }, value),
+          );
+        }
+
+        function ActionCard(title, englishTitle, description, buttonText, variant, action) {
+          return h("div", { style: {
+            display: "flex", flexDirection: "column", minHeight: "142px", padding: "16px",
+            borderRadius: "12px", border: "1px solid var(--dsw-alias-border-l2)",
+            background: "var(--dsw-alias-bg-layer-1)", boxShadow: "var(--dsw-elevation-soft)",
+          } },
+            h("div", { style: { fontSize: "14px", lineHeight: 1.4, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, title),
+            h("div", { style: { marginTop: "2px", fontSize: "11px", color: "var(--dsw-alias-label-tertiary)" } }, englishTitle),
+            h("div", { style: { flex: 1, margin: "10px 0 14px", fontSize: "12px", lineHeight: 1.55, color: "var(--dsw-alias-label-secondary)" } }, description),
+            h("div", null,
+              h(Button, { variant: variant, size: "sm", onClick: action }, buttonText),
+            ),
+          );
+        }
+
+        var statusColors = {
+          progress: "var(--dsw-alias-brand-text)",
+          success: "var(--dsw-alias-state-success-primary)",
+          error: "var(--dsw-alias-label-error)",
+        };
+        return h("div", { style: { display: "flex", flexDirection: "column", gap: "18px", maxWidth: "760px", padding: "4px 0 24px" } },
+          h("section", { style: {
+            position: "relative", overflow: "hidden", padding: "20px", borderRadius: "14px",
+            border: "1px solid var(--dsw-alias-border-l2)",
+            background: "linear-gradient(135deg, var(--dsw-alias-bg-layer-2), var(--dsw-alias-bg-layer-1))",
+          } },
+            h("div", { style: {
+              position: "absolute", width: "180px", height: "180px", right: "-72px", top: "-108px",
+              borderRadius: "50%", background: "var(--dsw-alias-brand-primary)", opacity: 0.09, pointerEvents: "none",
+            } }),
+            h("div", { style: { position: "relative", display: "flex", alignItems: "center", gap: "13px" } },
+              h("div", { style: {
+                display: "grid", placeItems: "center", width: "48px", height: "48px", flex: "0 0 48px",
+                borderRadius: "13px", border: "1px solid var(--dsw-alias-border-l2)",
+                background: "var(--dsw-alias-bg-layer-1)", boxShadow: "var(--dsw-elevation-soft)", overflow: "hidden",
+              } },
+                h("img", {
+                  src: INFO.iconUrl,
+                  alt: "Deepseek Harness For IDE",
+                  style: { display: "block", width: "42px", height: "42px", objectFit: "contain" },
+                }),
+              ),
+              h("div", null,
+                h("div", { style: { fontSize: "16px", lineHeight: 1.35, fontWeight: 650, color: "var(--dsw-alias-label-primary)" } }, "Deepseek Harness For IDE"),
+                h("div", { style: { marginTop: "3px", fontSize: "12px", lineHeight: 1.45, color: "var(--dsw-alias-label-secondary)" } },
+                  "让 DeepSeek Harness 与 JetBrains IDE 原生编辑、Diff 和项目工作区无缝协作。"),
+              ),
+            ),
+            h("div", { style: { position: "relative", display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "17px" } },
+              VersionBadge("IDE 插件", "v" + INFO.version, false),
+              VersionBadge("内置 DSH", "v" + INFO.dshVersion, true),
+              VersionBadge("构建日期", INFO.buildDate, false),
+            ),
           ),
-          h("div", { style: { display: "flex", gap: "10px", paddingTop: "4px", flexWrap: "wrap" } },
-            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.syncAgentPresetsPath); } },
-              "同步预设 / Sync presets"),
-            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.syncPluginsPath); } },
-              "同步插件 / Sync plugins"),
-            h(Button, { variant: "ghost", size: "sm", onClick: function () { runAction(INFO.resetPluginsPath); } },
-              "恢复默认插件 / Reset plugins"),
-            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.feedbackUrl); } },
-              "反馈 BUG / Report a problem"),
-            h(Button, { variant: "ghost", size: "sm", onClick: function () { runAction(INFO.githubUrl); } },
-              "GitHub"),
+
+          h("section", null,
+            h("div", { style: { marginBottom: "10px" } },
+              h("div", { style: { fontSize: "14px", fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, "项目同步"),
+              h("div", { style: { marginTop: "3px", fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } }, "把主 DSH 环境中的能力带到当前 IDE 项目。"),
+            ),
+            h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" } },
+              ActionCard(
+                "同步 Agent 预设", "Sync agent presets",
+                "复制 ~/.dsh/.agent-presets 到当前项目，立即生效，无需重启服务。",
+                "同步预设", "outline", function () { runAction(INFO.syncAgentPresetsPath); }
+              ),
+              ActionCard(
+                "同步 DSH 插件", "Sync DSH plugins",
+                "同步主 DSH profile 中兼容的插件；完成后会自动重启当前项目的 DSH 服务。",
+                "同步插件", "primary", function () { runAction(INFO.syncPluginsPath); }
+              ),
+            ),
           ),
+
+          h("section", { style: {
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap",
+            padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--dsw-alias-border-l2)",
+            background: "var(--dsw-alias-bg-layer-1)",
+          } },
+            h("div", { style: { flex: "1 1 300px" } },
+              h("div", { style: { fontSize: "13px", fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, "恢复默认插件"),
+              h("div", { style: { marginTop: "3px", fontSize: "12px", lineHeight: 1.5, color: "var(--dsw-alias-label-secondary)" } },
+                "清理当前项目的插件 profile 并恢复内置配置，不会修改主 DSH 目录。服务将自动重启。"),
+            ),
+            h(Button, { variant: "outline", size: "sm", onClick: function () { runAction(INFO.resetPluginsPath); } }, "恢复默认 / Reset"),
+          ),
+
           actionStatus ? h("div", {
             role: "status",
-            style: { fontSize: "12px", color: "var(--dsw-alias-label-secondary)" },
-          }, actionStatus) : null,
+            style: {
+              padding: "10px 12px", borderRadius: "9px", border: "1px solid var(--dsw-alias-border-l2)",
+              background: "var(--dsw-alias-bg-layer-2)", fontSize: "12px",
+              color: statusColors[actionStatus.tone] || "var(--dsw-alias-label-secondary)",
+            },
+          }, actionStatus.text) : null,
+
+          h("footer", { style: {
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap",
+            paddingTop: "2px", color: "var(--dsw-alias-label-secondary)", fontSize: "12px",
+          } },
+            h("span", null, "帮助改进 Deepseek Harness For IDE"),
+            h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
+              h(Button, { variant: "ghost", size: "sm", onClick: function () { runAction(INFO.feedbackUrl); } }, "反馈问题"),
+              h(Button, { variant: "ghost", size: "sm", onClick: function () { runAction(INFO.githubUrl); } }, "GitHub"),
+            ),
+          ),
         );
       }
 

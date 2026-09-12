@@ -54,8 +54,7 @@ internal class NodeExecutableResolver(
                 if (!visited.add(key)) continue
 
                 val version = runCatching { versionProbe(absolute) }.getOrNull() ?: continue
-                val major = NODE_VERSION.find(version)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: continue
-                if (major >= MIN_NODE_MAJOR) {
+                if (isSupportedVersion(version)) {
                     return Resolution(absolute.path, version, source)
                 }
                 if (unsupportedVersion == null) {
@@ -115,8 +114,15 @@ internal class NodeExecutableResolver(
         environment.entries.firstOrNull { it.key.equals(name, ignoreCase = isWindows) }?.value
 
     companion object {
-        const val MIN_NODE_MAJOR = 18
-        private val NODE_VERSION = Regex("""^\s*v?(\d+)(?:\.\d+){1,2}""")
+        const val SUPPORTED_NODE_RANGE = "22.19.x or 24+"
+        private val NODE_VERSION = Regex("""^\s*v?(\d+)\.(\d+)(?:\.(\d+))?""")
+
+        internal fun isSupportedVersion(version: String): Boolean {
+            val match = NODE_VERSION.find(version) ?: return false
+            val major = match.groupValues[1].toIntOrNull() ?: return false
+            val minor = match.groupValues[2].toIntOrNull() ?: return false
+            return (major == 22 && minor >= 19) || major >= 24
+        }
 
         private fun probeVersion(executable: File): String? {
             return runForOutput(listOf(executable.absolutePath, "--version"), VERSION_TIMEOUT_SECONDS)
