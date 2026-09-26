@@ -1,5 +1,6 @@
 package com.deepseek.dsh.ide.process
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -58,10 +59,22 @@ object DshHomePolicy {
 
     /**
      * Seeds a resolved (non-main) home before spawn. Read-only w.r.t. the main
-     * home: only files that exist there are copied, and only when the
-     * destination is missing or different, so reconfiguring the standalone
-     * harness propagates into the IDE instance on the next start while the
-     * plugin can never wipe or overwrite anything on the main home.
+     * home: only files that exist there are copied, and the plugin can never
+     * wipe or overwrite anything on the main home.
+     *
+     * Credentials are copied in the direction "main home wins": API keys are
+     * managed centrally in the standalone harness, so a changed key must reach
+     * the IDE instance.
+     *
+     * Settings are merged ADDITIVELY instead: sections and keys the isolated
+     * home already stores are never rewritten. The previous copy-if-different
+     * behavior made the main home's document authoritative on every start, which
+     * silently reverted choices the user made in the embedded web UI — the
+     * reported "my language setting is gone after every IDE restart". A
+     * still-present legacy `settings.yaml` is skipped once this home migrated to
+     * the DSH 0.1.7 profile document (`settings.yaml.imported` marker), because
+     * DSH imports every re-appearing legacy document over the live profile
+     * configuration.
      */
     fun seedHome(home: Path, log: (String) -> Unit) {
         runCatching { Files.createDirectories(home) }.onFailure {
@@ -71,7 +84,14 @@ object DshHomePolicy {
         val main = mainHome()
         if (isSameDirectory(main, home)) return // override points at the main home: nothing to copy
         copyIfChanged(main.resolve(CREDENTIALS_FILE), home.resolve(CREDENTIALS_FILE), log)
-        copyIfChanged(main.resolve(SETTINGS_FILE), home.resolve(SETTINGS_FILE), log)
+        val mainSettings = main.resolve(SETTINGS_FILE)
+        if (Files.exists(home.resolve("$SETTINGS_FILE.imported"))) {
+            if (Files.exists(mainSettings)) {
+                log("DSH home settings already migrated into the profile document; not re-seeding $SETTINGS_FILE")
+            }
+            return
+        }
+        mergeSettingsMissing(mainSettings, home.resolve(SETTINGS_FILE), log)
     }
 
     /** The main user DSH home (`$DSH_HOME` of this process, else `~/.dsh`). */
@@ -97,6 +117,110 @@ object DshHomePolicy {
             Files.write(target, sourceBytes)
             log("DSH home seeded: $target <- $source")
         }.onFailure { log("DSH home seeding failed for $target: ${it.message}") }
+    }
+
+    /**
+     * Additive flat-mapping merge: copies every section and key of [source] that
+     * [target] does not have yet, and never rewrites a value the destination
+     * already stores. A missing destination is seeded verbatim so the first run
+     * still inherits the user's complete configuration.
+     */
+    internal fun mergeSettingsMissing(source: Path, target: Path, log: (String) -> Unit) {
+        val sourceText = runCatching { Files.readString(source) }.getOrNull() ?: return
+        if (!Files.exists(target)) {
+            runCatching {
+                Files.createDirectories(target.parent)
+                Files.write(target, sourceText.toByteArray(StandardCharsets.UTF_8))
+                log("DSH home seeded: $target <- $source")
+            }.onFailure { log("DSH home seeding failed for $target: ${it.message}") }
+            return
+        }
+        val current = runCatching { Files.readString(target) }.getOrNull() ?: return
+        val sourceSections = sectionsOf(sourceText)
+        if (sourceSections.isEmpty()) return
+        val currentSections = sectionsOf(current)
+        val currentByHeader = currentSections.values.associateBy { it.headerIndex }
+        val merged = mutableListOf<String>()
+        val lines = current.lines()
+        var changed = false
+        for ((index, line) in lines.withIndex()) {
+            merged.add(line)
+            val existing = currentByHeader[index] ?: continue
+            val addition = sourceSections[existing.name] ?: continue
+            for (candidate in addition.body) {
+                val key = memberKey(candidate) ?: continue
+                if (key in existing.keys) continue
+                merged.add(candidate)
+                changed = true
+            }
+        }
+        for ((name, section) in sourceSections) {
+            if (name in currentSections) continue
+            if (merged.isNotEmpty() && merged.last().isNotBlank()) merged.add("")
+            merged.add("$name:")
+            merged.addAll(section.body)
+            changed = true
+        }
+        if (!changed) return
+        runCatching {
+            val text = merged.joinToString("\n").trimEnd('\n') + "\n"
+            Files.write(target, text.toByteArray(StandardCharsets.UTF_8))
+            log("DSH home settings merged (existing values kept): $target <- $source")
+        }.onFailure { log("DSH home seeding failed for $target: ${it.message}") }
+    }
+
+    private data class Section(
+        val name: String,
+        val headerIndex: Int,
+        val keys: Set<String>,
+        val body: List<String>,
+    )
+
+    /** Maps a top-level section name to the lines it owns. */
+    private fun sectionsOf(text: String): Map<String, Section> {
+        val lines = text.lines()
+        val result = linkedMapOf<String, Section>()
+        var index = 0
+        while (index < lines.size) {
+            val name = topLevelKey(lines[index])
+            if (name == null) {
+                index++
+                continue
+            }
+            val body = mutableListOf<String>()
+            var cursor = index + 1
+            while (cursor < lines.size && topLevelKey(lines[cursor]) == null) {
+                val line = lines[cursor]
+                if (line.isNotBlank() && !line.trimStart().startsWith("#")) body.add(line)
+                cursor++
+            }
+            result[name] = Section(name, index, body.mapNotNull(::memberKey).toSet(), body)
+            index = cursor
+        }
+        return result
+    }
+
+    private fun topLevelKey(line: String): String? {
+        if (line.isBlank() || line.trimStart().startsWith("#")) return null
+        if (line.startsWith(" ") || line.startsWith("\t") || line.startsWith("-")) return null
+        return scalarKey(line)
+    }
+
+    private fun memberKey(line: String): String? {
+        if (line.isBlank() || line.trimStart().startsWith("#")) return null
+        if (!line.startsWith(" ") && !line.startsWith("\t")) return null
+        if (line.trimStart().startsWith("-")) return null
+        return scalarKey(line)
+    }
+
+    private fun scalarKey(line: String): String? {
+        val trimmed = line.trim()
+        val separator = trimmed.indexOf(':')
+        if (separator <= 0) return null
+        return trimmed.substring(0, separator).trim()
+            .removeSurrounding("'")
+            .removeSurrounding("\"")
+            .ifBlank { null }
     }
 
     private fun projectKeyOf(projectBasePath: String): String {

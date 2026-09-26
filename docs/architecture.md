@@ -205,8 +205,27 @@ DSH 更新很快，且插件需要同时支持内置（版本钉死）与外部�
 
 原则总结：**凡是 DSH 可能改变的行为（旗标、响应形状、选择策略、home 内容），插件
 要么探测、要么同时覆盖新旧两种语义、要么把解析做成结构不敏感**；并在改动 DSH
-运行时版本时按「内置 0.1.5-rc.2 / 外部旧版 npx / 最新源码树」三档分别做
+运行时版本时按「内置 0.1.7-rc.2 / 外部旧版 npx / 最新源码树」三档分别做
 启动 + workspace/session API 冒烟验证。
+
+### 7.1 用户设置的存储代际（0.1.7）与界面语言
+
+- **0.1.5 及更早**：用户设置是 `<DSH_HOME>/settings.yaml` 的扁平映射，界面语言为
+  `locale.preference`。
+- **0.1.7 起**：活动文档变为 profile 补丁 `profiles/<profile>/cordis.patch.yml`
+  （顶层 YAML 序列，按 `id` 定位行；语言行是 `- id: locale` 下的 `config.preference`），
+  旧的 `settings.yaml` 只在启动时导入一次并改名为 `settings.yaml.imported`。
+- 于是**同一份设置存在两个可能的目标文档**：`DshLocaleSettings` 按「哪个文档存在就写哪个」
+  处理；两者同时存在时都写（因为导入会覆盖活动文档，必须让两边一致）；已经迁移
+  （存在 `.imported`）的 home 不再接收主 home 的旧版 `settings.yaml`，否则每次启动都会把
+  旧值重新导入一次。
+- **语言默认值**：`locale.preference` 缺失时 DSH 前端回退到浏览器语言，而 JCEF 上报的是
+  Chromium 自身的语言，因此新建 home 一律显示英文、用户每次都要手动选一次。
+  `DshLocaleSettings` 在 `auto` 下按系统语言播种一次（中文系统 `zh`，其他 `en`），
+  已存在的选择永不覆盖；显式选择 `zh` / `en` 时每次启动都强制写入。
+- **隔离 home 的继承**：`.credentials.yaml` 仍以主 home 为准（API Key 集中管理）；
+  `settings.yaml` 改为「只补充缺失的段与键、绝不覆盖已有值」的合并，否则主 home 的文档
+  会在每次启动时回滚用户在内嵌界面里保存的任何设置（0.1.21 修复的「重启后语言失效」根因）。
 
 ## 8. 路线图（第二阶段）
 

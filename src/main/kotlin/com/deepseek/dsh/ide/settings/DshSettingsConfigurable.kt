@@ -4,6 +4,7 @@ import com.deepseek.dsh.ide.i18n.DshBundle
 import com.deepseek.dsh.ide.process.DshBundledRuntime
 import com.deepseek.dsh.ide.process.DshBuildInfo
 import com.deepseek.dsh.ide.process.DshHomePolicy
+import com.deepseek.dsh.ide.process.DshLocaleSettings
 import com.deepseek.dsh.ide.ui.DshFeedback
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -31,6 +32,7 @@ class DshSettingsConfigurable : Configurable {
     private val dshHomeField = JBTextField()
     private val fileJumpModeCombo = ComboBox(arrayOf("auto", "proxy", "off"))
     private val fileOpenModeCombo = ComboBox(arrayOf("auto", "file"))
+    private val languageCombo = ComboBox(DshLocaleSettings.OPTIONS.toTypedArray())
     private val autoStartCheck = JBCheckBox(DshBundle.message("dsh.settings.autoStart"))
     private val autoRestartCheck = JBCheckBox(DshBundle.message("dsh.settings.autoRestart"))
 
@@ -56,6 +58,15 @@ class DshSettingsConfigurable : Configurable {
                 }
             )
         }
+        languageCombo.setRenderer { _, value, _, _, _ ->
+            JBLabel(
+                when (value) {
+                    DshLocaleSettings.CHINESE -> DshBundle.message("dsh.settings.language.zh")
+                    DshLocaleSettings.ENGLISH -> DshBundle.message("dsh.settings.language.en")
+                    else -> DshBundle.message("dsh.settings.language.auto")
+                }
+            )
+        }
         val builder = FormBuilder.createFormBuilder()
             .addLabeledComponent(DshBundle.message("dsh.settings.command"), commandField)
             .addTooltip(DshBundle.message("dsh.settings.command.tip"))
@@ -69,6 +80,8 @@ class DshSettingsConfigurable : Configurable {
             .addTooltip(DshBundle.message("dsh.settings.fileJump.tip"))
             .addLabeledComponent(DshBundle.message("dsh.settings.fileOpen"), fileOpenModeCombo)
             .addTooltip(DshBundle.message("dsh.settings.fileOpen.tip"))
+            .addLabeledComponent(DshBundle.message("dsh.settings.language"), languageCombo)
+            .addTooltip(DshBundle.message("dsh.settings.language.tip"))
             .addComponent(autoStartCheck)
             .addComponent(autoRestartCheck)
             .addComponent(JBLabel("<html><font color='gray'>${DshBundle.message("dsh.settings.applyNote")}</font></html>"))
@@ -130,6 +143,7 @@ class DshSettingsConfigurable : Configurable {
             || s.dshHomeOverride != dshHomeField.text.trim()
             || s.fileJumpMode != fileJumpModeCombo.selectedItem
             || s.fileOpenMode != fileOpenModeCombo.selectedItem
+            || s.language != languageCombo.selectedItem
             || s.autoStartOnProjectOpen != autoStartCheck.isSelected
             || s.autoRestartOnExit != autoRestartCheck.isSelected
     }
@@ -150,6 +164,8 @@ class DshSettingsConfigurable : Configurable {
         s.dshHomeOverride = dshHomeField.text.trim()
         s.fileJumpMode = (fileJumpModeCombo.selectedItem as? String) ?: "auto"
         s.fileOpenMode = (fileOpenModeCombo.selectedItem as? String) ?: "auto"
+        s.language = DshLocaleSettings.explicitLanguage(languageCombo.selectedItem as? String ?: "")
+            ?: DshLocaleSettings.AUTO
         s.autoStartOnProjectOpen = autoStartCheck.isSelected
         s.autoRestartOnExit = autoRestartCheck.isSelected
     }
@@ -162,6 +178,7 @@ class DshSettingsConfigurable : Configurable {
         dshHomeField.text = s.dshHomeOverride
         fileJumpModeCombo.selectedItem = if (s.fileJumpMode in listOf("auto", "proxy", "off")) s.fileJumpMode else "auto"
         fileOpenModeCombo.selectedItem = if (s.fileOpenMode in listOf("auto", "file")) s.fileOpenMode else "auto"
+        languageCombo.selectedItem = DshLocaleSettings.explicitLanguage(s.language) ?: DshLocaleSettings.AUTO
         autoStartCheck.isSelected = s.autoStartOnProjectOpen
         autoRestartCheck.isSelected = s.autoRestartOnExit
     }

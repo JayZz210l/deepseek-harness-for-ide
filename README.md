@@ -19,7 +19,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 <img width="850" alt="Deepseek Harness For IDE 运行截图" src="./docs/images/DSH-FOR-IDE.png" />
 
-> 当前版本：**插件 0.1.20** · **内置 DeepSeek Harness v0.1.5-rc.2** · Windows x64
+> 当前版本：**插件 0.1.21** · **内置 DeepSeek Harness v0.1.7-rc.2** · Windows x64
 
 ---
 
@@ -58,14 +58,14 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 - 在 JCEF 工具窗口中运行 DSH Web，支持对话、会话管理、工具审批、目标、计划、
   子智能体、Workflow、插件与 Agent 预设；
-- 固定内置 **DSH v0.1.5-rc.2**，构建时校验实际运行时版本，避免误打包旧缓存；
+- 固定内置 **DSH v0.1.7-rc.2**，构建时校验实际运行时版本，避免误打包旧缓存；
 - 按运行时能力使用 `--no-open`，启动服务时不会额外弹出系统浏览器；
 - 工具栏提供启动、停止、重启、恢复默认插件、安装 DSH 插件、反馈和详情入口。
 
 ### IDE 原生文件体验
 
 - DSH 的 Read、Write、Edit 文件名，变更文件、交付卡片、回答内文件引用和文件侧栏树，
-  均优先在 IDE 中打开，不使用 DSH 0.1.5 的右侧文档预览器；
+  均优先在 IDE 中打开，不使用 DSH 0.1.7 的右侧文档预览器；
 - Read 等带行号入口会定位到 IDE 中对应行；目录会定位到 Project 视图；
 - Edit 工具行直接使用 DSH 携带的修改前后内容打开 IDE 原生 Diff，不依赖 Git 时序；
 - Diff 两侧继承目标文件的语言类型，支持 C#、Java、Kotlin 等 IDE 已识别语言的语法高亮；
@@ -82,7 +82,11 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 - 每个项目默认使用独立 DSH home：
   `%LOCALAPPDATA%\deepseek-harness-jetbrains\dsh-home\<项目>-<hash>`；
-- 从主 `~/.dsh` 单向继承凭据和基础设置，不与外部 `dsh web` 并发写同一目录；
+- 从主 `~/.dsh` 单向继承凭据和基础设置：凭据以主目录为准，设置只补充缺失项、
+  绝不覆盖你在内嵌界面里已保存的值；不与外部 `dsh web` 并发写同一目录；
+- **界面语言**可在「设置 → DeepSeek Harness → 界面语言」中选择 `自动`（默认，中文系统用中文、
+  其他系统用英文）/ `中文` / `英文`；「自动」只决定首次语言，你在 DeepSeek Harness 设置里手动
+  选择的语言会被保留并在重启 IDE 后继续生效，选择中文或英文则每次启动都强制生效；
 - **设置 → For IDE** 提供同步 Agent 预设、同步 DSH 插件和恢复默认插件；插件同步经过
   兼容过滤、启动验证与失败回滚，完成后自动重启项目服务；
 - 工具栏可直接安装 npm 包、Git 地址或受限的
@@ -120,15 +124,23 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 | 端口 | `0` | 自动分配空闲端口，避免多项目冲突 |
 | 文件跳转方式 | `auto` | 原生组合层网关优先，TCP 代理回退；也可选 `proxy` 或 `off` |
 | 文件打开方式 | `auto` | 修改文件显示 IDE Diff，否则打开编辑器；`file` 始终打开编辑器 |
+| 界面语言 | `自动` | `自动` 按系统语言决定首次语言（中文系统用中文，其他系统用英文），且不覆盖 DSH 设置里手动选择的语言；`中文` / `英文` 每次启动都强制生效 |
 | DSH_HOME 覆盖 | 空 | 空表示按项目隔离；`default` 共用 `~/.dsh`；也可填写绝对路径 |
 | 打开项目时自动启动 | 开 | 每个项目启动独立实例 |
 | 意外退出后自动重启 | 关 | DSH 进程异常退出后自动重新启动 |
 
 > 不建议多个 `dsh web` 实例共用一个 DSH home。默认隔离模式可以避免会话和配置被并发写坏。
 
+## 常见问题
+
+- **重启 IDE 后界面语言变了**：DSH 的界面语言保存在设置项 `locale.preference` 中。0.1.7 起
+  用户设置位于 `profiles/web/cordis.patch.yml`（旧的 `settings.yaml` 只导入一次）。插件启动时
+  会按「界面语言」设置写入该设置项；「自动」只负责首次语言，不会覆盖你在 DeepSeek Harness
+  设置里选择的语言。需要固定语言时，把「界面语言」改为 `中文` 或 `英文`。
+
 ## 当前限制
 
-- DSH v0.1.5-rc.2 新增的 Session 日志导出使用浏览器下载管理器；当前插件尚未为 JCEF
+- DSH v0.1.7-rc.2 的 Session 日志导出使用浏览器下载管理器；当前插件尚未为 JCEF
   注册 ZIP 下载处理器，因此界面可能显示“已开始下载”但不弹出保存位置；
 - 当前内置运行时安装包仅面向 Windows x64。
 
@@ -139,8 +151,8 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 需要 JDK 21+。首次构建前先准备固定版本的 DSH npm 缓存：
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.20.zip
+npx --yes @deepseek-ai/dsh@0.1.7-rc.2 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.21.zip
 .\gradlew.bat runIde           # 启动带插件的沙箱 IDE
 .\gradlew.bat verifyPlugin     # 验证支持的 IntelliJ Platform 版本
 ```

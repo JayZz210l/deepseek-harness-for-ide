@@ -41,6 +41,13 @@ class DshSettingsState : PersistentStateComponent<DshSettingsState.Settings> {
          * `file` always opens the editor.
          */
         var fileOpenMode: String = "auto",
+        /**
+         * UI language of the embedded DeepSeek Harness instance: `auto` follows the system
+         * language (Chinese systems get Chinese, every other language gets English) and only
+         * seeds a home that stores no language yet, while `zh`/`en` are enforced on every
+         * start. See [com.deepseek.dsh.ide.process.DshLocaleSettings].
+         */
+        var language: String = "auto",
         /** Rolling log buffer size kept for the in-panel log view. */
         var maxLogLines: Int = 1000,
         /** The last plugin version the update announcement was shown for. */

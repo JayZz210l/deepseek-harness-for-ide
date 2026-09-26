@@ -16,6 +16,12 @@ tools/
 idea/
 verification-*/
 
+# Local scratch: icon generation output and other throwaway tooling
+tmp/
+
+# Standalone promo-video project (not part of the plugin distribution)
+remotion-demo/
+
 # Build artifacts
 *.zip
 *.jar

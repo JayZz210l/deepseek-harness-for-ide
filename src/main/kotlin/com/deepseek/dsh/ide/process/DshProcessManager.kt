@@ -309,6 +309,22 @@ class DshProcessManager(private val project: Project) : Disposable {
         val dshHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
         if (dshHome != null) {
             DshHomePolicy.seedHome(Paths.get(dshHome), ::addLog)
+            // The embedded browser reports Chromium's own language, so a home without a
+            // stored preference always opened in English. Seed the system language once,
+            // and keep the explicit plugin setting authoritative; a language the user
+            // picked in the web UI is never overwritten.
+            val language = DshLocaleSettings.apply(Paths.get(dshHome), settings.language, ::addLog)
+            when (language.action) {
+                DshLocaleSettings.Action.SEEDED ->
+                    addLog(DshBundle.message("dsh.proc.languageSeeded", language.language))
+                DshLocaleSettings.Action.APPLIED ->
+                    addLog(DshBundle.message("dsh.proc.languageApplied", language.language))
+                DshLocaleSettings.Action.KEPT ->
+                    addLog(DshBundle.message("dsh.proc.languageKept", language.language))
+                DshLocaleSettings.Action.UNCHANGED, DshLocaleSettings.Action.FAILED -> Unit
+            }
+        } else {
+            addLog(DshBundle.message("dsh.proc.languageInherited"))
         }
 
         val commandResolution = resolveCommandTokens(settings, nodeResolution.executable)

@@ -221,7 +221,10 @@ window.__ModuleLoader__.load({
         var statusColors = {
           progress: "var(--dsw-alias-brand-text)",
           success: "var(--dsw-alias-state-success-primary)",
-          error: "var(--dsw-alias-label-error)",
+          // --dsw-alias-label-error is referenced by DSH's own stylesheets but
+          // defined by neither the 0.1.5 nor the 0.1.7 theme, so the failure text
+          // used to render with no color at all. Prefer the defined state token.
+          error: "var(--dsw-alias-state-error-primary, var(--dsw-alias-label-error))",
         };
         return h("div", { style: { display: "flex", flexDirection: "column", gap: "18px", maxWidth: "760px", padding: "4px 0 24px" } },
           h("section", { style: {

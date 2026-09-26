@@ -2,7 +2,6 @@ package com.deepseek.dsh.ide.process
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Comparator
 
 /**
  * "Restore default plugins" for the project's isolated DSH home: remove the
@@ -18,6 +17,9 @@ object DshPluginReset {
 
     private const val PROFILE = "web"
     const val BACKUP_NAME = "$PROFILE.dsh-ide-reset-bak"
+
+    /** See [DshProfileFiles.LINK_PROJECTION_DIR]; re-exported for callers and tests. */
+    const val LINK_PROJECTION_DIR = DshProfileFiles.LINK_PROJECTION_DIR
 
     data class Outcome(
         /** True when a profile directory existed and was moved aside. */
@@ -36,8 +38,15 @@ object DshPluginReset {
         val backup = profiles.resolve(BACKUP_NAME)
         return try {
             if (!Files.exists(web)) return Outcome(removed = false)
-            deleteTree(backup) // stale backup from an interrupted reset
+            DshProfileFiles.deleteTree(backup) // stale backup from an interrupted reset
             Files.createDirectories(profiles)
+            // Drop the link-backend projections while the profile still sits at its
+            // final path: they point at `web/node_modules`, so moving `web` aside
+            // would make every one of them dangle. A dangling junction cannot be
+            // traversed, and DSH's own profile load deletes this directory, so
+            // leaving them behind aborts the post-reset boot with
+            // `NoSuchFileException ... .dsh-module-fallback\node_modules\<pkg>`.
+            DshProfileFiles.discardLinkProjections(web, log)
             Files.move(web, backup)
             log("Moved plugin profile aside: $web -> $backup")
             Outcome(removed = true)
@@ -52,7 +61,7 @@ object DshPluginReset {
     /** Deletes the backup once the post-reset restart has proven successful. */
     fun discardBackup(projectHome: Path, log: (String) -> Unit) {
         val backup = projectHome.resolve("profiles").resolve(BACKUP_NAME)
-        deleteTree(backup)
+        DshProfileFiles.deleteTree(backup)
         log("Default plugin profile confirmed; backup removed: $backup")
     }
 
@@ -65,17 +74,10 @@ object DshPluginReset {
         val web = profiles.resolve(PROFILE)
         val backup = profiles.resolve(BACKUP_NAME)
         if (!Files.exists(backup)) return
-        deleteTree(web)
+        DshProfileFiles.deleteTree(web)
         runCatching {
             Files.move(backup, web)
             log("Restored previous plugin profile: $web")
         }.onFailure { log("Restore of the plugin profile failed: ${it.message}") }
-    }
-
-    private fun deleteTree(path: Path) {
-        if (!Files.exists(path)) return
-        Files.walk(path).use { paths ->
-            paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
-        }
     }
 }

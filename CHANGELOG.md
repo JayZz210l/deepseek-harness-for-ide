@@ -2,6 +2,19 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.21
+
+- 内置 DeepSeek Harness 从 `0.1.5-rc.2` 升级到官方 `0.1.7-rc.2`，并适配新版前端接缝：工具行文件按钮改为 `react.useMemo` 工厂（同时新增 `settledWithCue` 守卫）；原生文件打开、聊天区打开器与「文件」侧栏接缝保持有效。构建期仍逐个接缝校验，接缝变化会让构建直接失败，而不是静默产出坏包。
+- DSH 0.1.7 把用户设置从 `settings.yaml` 迁移到 profile 补丁文档（`profiles/web/cordis.patch.yml`；`settings.yaml` 只在启动时导入一次，随后改名为 `settings.yaml.imported`）。插件现在按运行时真正使用的文档写入设置，并且不再向已迁移的主目录重复投递旧版 `settings.yaml`——重复导入会把旧值写回活动配置。
+- 修复「重启 IDE 后语言设置失效、每次都要重新设置语言」：
+  - 设置页新增「界面语言」（自动 / 中文 / 英文）。「自动」按系统语言决定首次语言：中文系统用中文，其他系统用英文。DSH 自身只提供 `zh` / `en` 两种界面语言，没有独立的语言开关，页面语言由设置项 `locale.preference` 决定，因此插件直接维护该设置项。
+  - 写入 `locale.preference` 后，内嵌页面首次打开即为正确语言，无需再手动选择；你在 DeepSeek Harness 设置里手动选择的语言会被保留，重启 IDE 后不会被覆盖（「自动」只决定首次值）。需要固定语言时，在设置页选择中文或英文，每次启动都会强制生效。
+  - 修复根因：主目录设置不再覆盖隔离目录设置。`.credentials.yaml` 仍以主目录为准（API Key 集中管理），`settings.yaml` 改为「只补充缺失的段与键、绝不覆盖已有值」的合并，主目录无法再悄悄回滚你在内嵌界面里的任何选择。
+- 修复「For IDE」页面操作失败提示没有颜色：`--dsw-alias-label-error` 在 0.1.5 / 0.1.7 主题中都未定义，改用已定义的 `--dsw-alias-state-error-primary` 并保留回退。
+- 新增 26 个单元测试，覆盖语言设置文档读写、语言决策与 home 设置合并逻辑。
+- 修复「恢复默认插件」后内嵌页面起不来、并弹出 `插件重置失败：java.nio.file.NoSuchFileException: ...\.dsh-module-fallback\node_modules\@antfu\install-pkg`：重置把 `profiles/web` 整体改名挪走，却没有先清掉旧版 link 后端写进 profile 的 `.dsh-module-fallback` 投影，其中每个 junction 都指向 `web/node_modules/<包名>`，改名后全部变成悬空链接。Node 侧 `removeLinkProjections` 遍历到悬空 junction 即抛异常、profiles 启动失败；同一个悬空 junction 也让备份目录删不掉，每次失败都会在磁盘上留下一个约 380 MB 的 profile 副本。现在重置在改名之前先清掉链接投影，删除时也不再跟随任何链接：junction 只作为单个条目删除，绝不递归进它指向的目标（目标可能是多个 profile 共用的 `profiles/node_modules/.pnpm` 存储，跟随进去会把别的 profile 一起删空），无法读取内容的条目经由 `visitFileFailed` 当叶子删掉，而不是中断整次遍历。「插件不兼容」隔离（`web.dsh-ide-incompatible-bak`）走同一套逻辑——磁盘上遗留的 4 个备份里有 3 个正是它留下的。
+- 新增 5 个单元测试覆盖上述场景（含「删除投影不得删掉其指向的真实包」与「遗留悬空 junction 的备份必须能删干净」），并用变异测试确认这些用例在旧实现下确实会失败。
+
 ## 0.1.20
 
 - 重新设计 DSH 设置中的「For IDE」页面，使用真实彩色插件图标、产品信息卡、版本徽章、分组操作卡片和明确的执行状态提示；优化窄窗口下的自适应布局。

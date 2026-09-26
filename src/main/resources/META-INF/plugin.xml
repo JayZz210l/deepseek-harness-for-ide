@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.20</version>
+    <version>0.1.21</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,17 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.21 — 内置 DeepSeek Harness 升级到官方 0.1.7-rc.2，并适配新版工具行 Diff、原生文件打开与聊天文件打开接缝，
+      保留 IDE 原生 Diff、行号跳转、--no-open 和项目隔离 profile 行为；0.1.7 把用户设置从 settings.yaml 迁移到
+      profile 补丁文档，插件会按版本写入正确的文档，并把主目录设置改为「只补缺失项、绝不覆盖」的合并，避免每次重启 IDE
+      覆盖你在内嵌界面里的选择。</p>
+      <p>0.1.21 — 修复重启 IDE 后界面语言丢失、每次都要重新设置：设置页新增「界面语言」选项（自动 / 中文 / 英文），
+      「自动」按系统语言决定首次语言（中文系统用中文，其他系统用英文），并在 DSH 设置文档中写入 locale.preference；
+      你在 DeepSeek Harness 设置里手动选择的语言会被保留，重启后不再被覆盖。</p>
+      <p>0.1.21 — 修复「恢复默认插件」后内嵌页面起不来并提示 NoSuchFileException：重置在挪走项目 profile 之前
+      没有清掉旧版遗留的 .dsh-module-fallback 链接投影，改名后其中每个 junction 都变成悬空链接，既让服务启动失败，
+      也让备份删不掉、每次失败都在磁盘上留下一个约 380 MB 的副本。现在先清投影再改名，且删除时不再跟随任何链接，
+      共享存储中的包不会被误删。</p>
       <p>0.1.20 — 重新设计 DSH 设置中的 For IDE 页面：采用真实彩色插件图标、产品信息卡、版本徽章、分组操作卡片和状态提示布局；
       新增内置 DeepSeek Harness 版本展示，并修复 Edit 原生 Diff 的语言类型传递，使前后内容正确显示语法高亮。</p>
       <p>0.1.19 — 越过 DSH 0.1.5 新增的右侧文档预览器：Read/Write/Edit 文件名、变更文件、

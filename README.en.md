@@ -19,7 +19,7 @@ editor selections, and project workspaces are integrated with native IDE capabil
 
 <img width="850" alt="Deepseek Harness For IDE running inside the IDE" src="./docs/images/DSH-FOR-IDE.png" />
 
-> Current release: **plugin 0.1.20** · **bundled DeepSeek Harness v0.1.5-rc.2** · Windows x64
+> Current release: **plugin 0.1.21** · **bundled DeepSeek Harness v0.1.7-rc.2** · Windows x64
 
 ---
 
@@ -60,7 +60,7 @@ command is configured in the IDE settings.
 
 - DSH Web runs inside a JCEF tool window with chat, session management, approvals, goals,
   plans, subagents, workflows, plugins, and agent presets.
-- The plugin pins **DSH v0.1.5-rc.2** and verifies the runtime version while building so an
+- The plugin pins **DSH v0.1.7-rc.2** and verifies the runtime version while building so an
   older npm cache cannot be packaged accidentally.
 - `--no-open` is used when supported, preventing DSH startup from opening a separate browser.
 - The toolbar provides start, stop, restart, reset plugins, install DSH plugin, feedback,
@@ -69,7 +69,7 @@ command is configured in the IDE settings.
 ### Native IDE file experience
 
 - Read, Write, and Edit filenames, changed files, delivery cards, answer file references,
-  and the Files sidebar tree open in the IDE instead of DSH 0.1.5's right document preview.
+  and the Files sidebar tree open in the IDE instead of DSH 0.1.7's right document preview.
 - Read links carrying a line number navigate to that IDE line; project directories are
   revealed in the Project view.
 - Edit rows send DSH's authoritative before/after fragments directly to the native IDE diff,
@@ -92,8 +92,14 @@ command is configured in the IDE settings.
 
 - Every project gets an isolated DSH home under
   `%LOCALAPPDATA%\deepseek-harness-jetbrains\dsh-home\<project>-<hash>` by default.
-- Credentials and base settings are inherited one-way from `~/.dsh`; the plugin does not
-  concurrently write the home used by an external `dsh web`.
+- Credentials and base settings are inherited one-way from `~/.dsh`: credentials follow the
+  main home, while settings are merged additively so a value you saved in the embedded UI is
+  never overwritten. The plugin does not concurrently write the home used by an external `dsh web`.
+- The **UI language** is selectable under **Settings → DeepSeek Harness → UI language**:
+  `Auto` (default; Chinese on a Chinese system, English otherwise), `Chinese`, or `English`.
+  `Auto` only decides the initial language and never overrides a language you picked in the
+  DeepSeek Harness settings, so your choice survives IDE restarts; an explicit language is
+  enforced on every start.
 - **Settings → For IDE** provides agent-preset sync, DSH-plugin sync, and reset-to-default.
   Plugin sync includes compatibility filtering, startup validation, rollback, and automatic restart.
 - The toolbar accepts an npm package, Git spec, or restricted
@@ -132,6 +138,7 @@ Open **Settings → Tools → Deepseek Harness For IDE**.
 | Port | `0` | Lets the OS choose a free port and avoids multi-project conflicts |
 | File jump | `auto` | Composition-native gateway with TCP-proxy fallback; `proxy` and `off` are also available |
 | File open mode | `auto` | Modified files open as IDE diffs, others in the editor; `file` always opens the editor |
+| UI language | `Auto` | `Auto` derives the initial language from the system language (Chinese systems get Chinese, others English) and never overrides a language picked in the DSH settings; `Chinese` / `English` are enforced on every start |
 | DSH_HOME override | blank | Blank isolates by project; `default` shares `~/.dsh`; an absolute path selects another home |
 | Auto start on project open | on | Starts one independent instance for each project |
 | Auto restart after unexpected exit | off | Restarts DSH when the process crashes |
@@ -139,9 +146,17 @@ Open **Settings → Tools → Deepseek Harness For IDE**.
 > Sharing one DSH home between multiple `dsh web` processes is not recommended. The isolated
 > default prevents concurrent writes from damaging sessions or configuration.
 
+## Troubleshooting
+
+- **The UI language changes after an IDE restart.** DSH stores its language in the setting
+  `locale.preference`. Since 0.1.7 the user settings live in `profiles/web/cordis.patch.yml`
+  (a legacy `settings.yaml` is imported only once). The plugin writes that setting on every
+  start; `Auto` only decides the initial value and never overrides a language chosen in the
+  DeepSeek Harness settings. Select `Chinese` or `English` to pin one language permanently.
+
 ## Current limitations
 
-- Session-log export added in DSH v0.1.5-rc.2 relies on a browser download manager. The plugin
+- Session-log export added in DSH v0.1.7-rc.2 relies on a browser download manager. The plugin
   has not yet registered a ZIP download handler for JCEF, so the UI may report that a download
   started without prompting for a destination.
 - The bundled runtime distribution currently targets Windows x64 only.
@@ -154,8 +169,8 @@ The project is under active development. Completed changes and compatibility fix
 JDK 21+ is required. Populate the fixed DSH npm cache before the first build:
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.20.zip
+npx --yes @deepseek-ai/dsh@0.1.7-rc.2 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.21.zip
 .\gradlew.bat runIde           # launch a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # verify supported IntelliJ Platform releases
 ```

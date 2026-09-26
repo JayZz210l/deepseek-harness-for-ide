@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.20"
+version = "0.1.21"
 
 repositories {
     mavenCentral()
@@ -101,7 +101,7 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
-val bundledDshVersion = "0.1.5-rc.2"
+val bundledDshVersion = "0.1.7-rc.2"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
 
@@ -165,11 +165,14 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
         }
         from(File(root, "node_modules")) {
             into("dsh-runtime/node_modules")
-            // npm bin shims, source maps, docs and TypeScript sources are never needed at runtime.
+            // npm bin shims, source maps, docs, TypeScript sources and native debug
+            // symbols are never needed at runtime (the 0.1.7 closure ships ~20 MB of
+            // node-pty .pdb files alone).
             exclude("**/.bin/**")
             exclude("**/*.map")
             exclude("**/*.md")
             exclude("**/*.ts")
+            exclude("**/*.pdb")
         }
         into(layout.buildDirectory.dir("bundled-dsh-runtime"))
         // The ide-settings resources are read inside doLast — declare them as inputs so
@@ -244,23 +247,30 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             // Edit rows already own the authoritative applied hunk payload.
             // Hand it to JCEF's native bridge instead of asking the IDE to
             // reconstruct a baseline after the file has changed on disk.
+            // DSH 0.1.7 wraps the handler factory in react.useMemo (the row also
+            // gained a `settledWithCue` guard), so the seam is the whole memo
+            // expression instead of the bare arrow function.
             val toolClient = destinationDir.resolve(
                 "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-tool/lib/client.js",
             )
             if (toolClient.isFile) {
                 var source = toolClient.readText()
                 val anchor = """
-                    \t\t\tconst openFile = (event) => {
+                    \t\t\tconst openFile = (0, react.useMemo)(() => filePath !== void 0 && onOpenFile !== void 0 && !settledWithCue ? (event) => {
                     \t\t\t\tevent.stopPropagation();
-                    \t\t\t\tif (filePath === void 0 || onOpenFile === void 0) return;
                     \t\t\t\tif (filePathLine === void 0) onOpenFile(filePath);
                     \t\t\t\telse onOpenFile(filePath, { line: filePathLine });
-                    \t\t\t};
+                    \t\t\t} : void 0, [
+                    \t\t\t\tfilePath,
+                    \t\t\t\tfilePathLine,
+                    \t\t\t\tonOpenFile,
+                    \t\t\t\tsettledWithCue
+                    \t\t\t]);
                 """.trimIndent().replace("\\t", "\t")
                 val replacement = """
                     \t\t\twindow.__dshIdeToolDiffBridgeAvailable = true;
                     \t\t\twindow.__dshIdeToolFileBridgeAvailable = true;
-                    \t\t\tconst openFile = (event) => {
+                    \t\t\tconst openFile = (0, react.useMemo)(() => filePath !== void 0 && onOpenFile !== void 0 && !settledWithCue ? (event) => {
                     \t\t\t\tevent.stopPropagation();
                     \t\t\t\tif (filePath !== void 0 && diffBody !== null && typeof window.__dshIdeOpenDiff === "function") {
                     \t\t\t\t\twindow.__dshIdeOpenDiff(filePath, diffBody.card.diffs).catch(() => {
@@ -276,10 +286,14 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                     \t\t\t\t\t});
                     \t\t\t\t\treturn;
                     \t\t\t\t}
-                    \t\t\t\tif (filePath === void 0 || onOpenFile === void 0) return;
                     \t\t\t\tif (filePathLine === void 0) onOpenFile(filePath);
                     \t\t\t\telse onOpenFile(filePath, { line: filePathLine });
-                    \t\t\t};
+                    \t\t\t} : void 0, [
+                    \t\t\t\tfilePath,
+                    \t\t\t\tfilePathLine,
+                    \t\t\t\tonOpenFile,
+                    \t\t\t\tsettledWithCue
+                    \t\t\t]);
                 """.trimIndent().replace("\\t", "\t")
                 check(source.contains(anchor)) {
                     "bundleDshRuntime: dsh-client-ui-tool file-open seam changed"
@@ -289,7 +303,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                 throw GradleException("bundleDshRuntime: dsh-client-ui-tool entry is missing")
             }
 
-            // DSH 0.1.5 routes every chat-owned local file open through its new
+            // DSH 0.1.5 and later route every chat-owned local file open through the
             // right-sidebar document preview. Replace that one central opener so
             // Read/Write/Edit tool rows, produced-file chips, delivered-file preview
             // cards, and inline produced-file mentions all prefer the IDE.

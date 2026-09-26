@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.util.Comparator
 import java.util.concurrent.TimeUnit
 
 /**
@@ -251,17 +250,16 @@ object DshPluginSync {
         var quarantine = profiles.resolve("$PROFILE.dsh-ide-incompatible-bak")
         var suffix = 2
         while (Files.exists(quarantine)) quarantine = profiles.resolve("$PROFILE.dsh-ide-incompatible-bak-$suffix").also { suffix++ }
+        // Same reason as the reset: the link-backend projections point at
+        // `web/node_modules`, so moving `web` aside would leave every one of them
+        // dangling and make the quarantine undeletable.
+        DshProfileFiles.discardLinkProjections(web, log)
         Files.move(web, quarantine)
         log("Quarantined incompatible plugin profile: $web -> $quarantine")
         quarantine
     }.getOrNull()
 
-    private fun deleteTree(path: Path) {
-        if (!Files.exists(path)) return
-        Files.walk(path).use { paths ->
-            paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
-        }
-    }
+    private fun deleteTree(path: Path) = DshProfileFiles.deleteTree(path)
 
     private fun quoteCmd(value: String): String =
         "\"" + value.replace("\"", "\"\"") + "\""
