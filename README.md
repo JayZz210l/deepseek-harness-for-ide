@@ -19,7 +19,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 <img width="850" alt="Deepseek Harness For IDE 运行截图" src="./docs/images/DSH-FOR-IDE.png" />
 
-> 当前版本：**插件 0.1.21** · **内置 DeepSeek Harness v0.1.7-rc.2** · Windows x64
+> 当前版本：**插件 0.1.22** · **内置 DeepSeek Harness v0.2.0-rc.2** · Windows x64
 
 ---
 
@@ -58,14 +58,14 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 - 在 JCEF 工具窗口中运行 DSH Web，支持对话、会话管理、工具审批、目标、计划、
   子智能体、Workflow、插件与 Agent 预设；
-- 固定内置 **DSH v0.1.7-rc.2**，构建时校验实际运行时版本，避免误打包旧缓存；
+- 固定内置 **DSH v0.2.0-rc.2**，构建时校验实际运行时版本，避免误打包旧缓存；
 - 按运行时能力使用 `--no-open`，启动服务时不会额外弹出系统浏览器；
 - 工具栏提供启动、停止、重启、恢复默认插件、安装 DSH 插件、反馈和详情入口。
 
 ### IDE 原生文件体验
 
 - DSH 的 Read、Write、Edit 文件名，变更文件、交付卡片、回答内文件引用和文件侧栏树，
-  均优先在 IDE 中打开，不使用 DSH 0.1.7 的右侧文档预览器；
+  均优先在 IDE 中打开，不使用 DSH 的右侧文档预览器；
 - Read 等带行号入口会定位到 IDE 中对应行；目录会定位到 Project 视图；
 - Edit 工具行直接使用 DSH 携带的修改前后内容打开 IDE 原生 Diff，不依赖 Git 时序；
 - Diff 两侧继承目标文件的语言类型，支持 C#、Java、Kotlin 等 IDE 已识别语言的语法高亮；
@@ -140,7 +140,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 ## 当前限制
 
-- DSH v0.1.7-rc.2 的 Session 日志导出使用浏览器下载管理器；当前插件尚未为 JCEF
+- DSH 的 Session 日志导出使用浏览器下载管理器；当前插件尚未为 JCEF
   注册 ZIP 下载处理器，因此界面可能显示“已开始下载”但不弹出保存位置；
 - 当前内置运行时安装包仅面向 Windows x64。
 
@@ -151,8 +151,8 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 需要 JDK 21+。首次构建前先准备固定版本的 DSH npm 缓存：
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.1.7-rc.2 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.21.zip
+npx --yes @deepseek-ai/dsh@0.2.0-rc.2 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.22.zip
 .\gradlew.bat runIde           # 启动带插件的沙箱 IDE
 .\gradlew.bat verifyPlugin     # 验证支持的 IntelliJ Platform 版本
 ```

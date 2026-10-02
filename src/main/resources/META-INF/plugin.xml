@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.21</version>
+    <version>0.1.22</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,8 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.22 — 内置 DeepSeek Harness 升级到官方 0.2.0-rc.2。该版本改进模型选择器搜索与键盘选择，
+      修复切换会话后计划审阅打不开等问题；插件继续对接 IDE 文件打开、原生 Diff、项目隔离与 For IDE 操作。</p>
       <p>0.1.21 — 内置 DeepSeek Harness 升级到官方 0.1.7-rc.2，并适配新版工具行 Diff、原生文件打开与聊天文件打开接缝，
       保留 IDE 原生 Diff、行号跳转、--no-open 和项目隔离 profile 行为；0.1.7 把用户设置从 settings.yaml 迁移到
       profile 补丁文档，插件会按版本写入正确的文档，并把主目录设置改为「只补缺失项、绝不覆盖」的合并，避免每次重启 IDE

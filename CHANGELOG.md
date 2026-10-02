@@ -2,6 +2,11 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.22
+
+- 内置 DeepSeek Harness 从 `0.1.7-rc.2` 升级到官方 [`0.2.0-rc.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.2)，并更新插件对新版运行时的集成。新版 DSH 提供模型选择器搜索与键盘选择，并修复切换会话后计划审阅无法打开等问题。
+- 保持 IDE 原生文件打开与 Diff、编辑器选区附加、项目隔离 profile、For IDE 设置操作及插件管理入口可用。
+
 ## 0.1.21
 
 - 内置 DeepSeek Harness 从 `0.1.5-rc.2` 升级到官方 `0.1.7-rc.2`，并适配新版前端接缝：工具行文件按钮改为 `react.useMemo` 工厂（同时新增 `settledWithCue` 守卫）；原生文件打开、聊天区打开器与「文件」侧栏接缝保持有效。构建期仍逐个接缝校验，接缝变化会让构建直接失败，而不是静默产出坏包。

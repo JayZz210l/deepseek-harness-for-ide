@@ -19,7 +19,7 @@ editor selections, and project workspaces are integrated with native IDE capabil
 
 <img width="850" alt="Deepseek Harness For IDE running inside the IDE" src="./docs/images/DSH-FOR-IDE.png" />
 
-> Current release: **plugin 0.1.21** · **bundled DeepSeek Harness v0.1.7-rc.2** · Windows x64
+> Current release: **plugin 0.1.22** · **bundled DeepSeek Harness v0.2.0-rc.2** · Windows x64
 
 ---
 
@@ -60,7 +60,7 @@ command is configured in the IDE settings.
 
 - DSH Web runs inside a JCEF tool window with chat, session management, approvals, goals,
   plans, subagents, workflows, plugins, and agent presets.
-- The plugin pins **DSH v0.1.7-rc.2** and verifies the runtime version while building so an
+- The plugin pins **DSH v0.2.0-rc.2** and verifies the runtime version while building so an
   older npm cache cannot be packaged accidentally.
 - `--no-open` is used when supported, preventing DSH startup from opening a separate browser.
 - The toolbar provides start, stop, restart, reset plugins, install DSH plugin, feedback,
@@ -69,7 +69,7 @@ command is configured in the IDE settings.
 ### Native IDE file experience
 
 - Read, Write, and Edit filenames, changed files, delivery cards, answer file references,
-  and the Files sidebar tree open in the IDE instead of DSH 0.1.7's right document preview.
+  and the Files sidebar tree open in the IDE instead of DSH's right document preview.
 - Read links carrying a line number navigate to that IDE line; project directories are
   revealed in the Project view.
 - Edit rows send DSH's authoritative before/after fragments directly to the native IDE diff,
@@ -156,7 +156,7 @@ Open **Settings → Tools → Deepseek Harness For IDE**.
 
 ## Current limitations
 
-- Session-log export added in DSH v0.1.7-rc.2 relies on a browser download manager. The plugin
+- DSH session-log export relies on a browser download manager. The plugin
   has not yet registered a ZIP download handler for JCEF, so the UI may report that a download
   started without prompting for a destination.
 - The bundled runtime distribution currently targets Windows x64 only.
@@ -169,8 +169,8 @@ The project is under active development. Completed changes and compatibility fix
 JDK 21+ is required. Populate the fixed DSH npm cache before the first build:
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.1.7-rc.2 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.21.zip
+npx --yes @deepseek-ai/dsh@0.2.0-rc.2 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.22.zip
 .\gradlew.bat runIde           # launch a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # verify supported IntelliJ Platform releases
 ```
