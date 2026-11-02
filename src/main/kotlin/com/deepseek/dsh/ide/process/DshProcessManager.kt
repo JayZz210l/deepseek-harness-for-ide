@@ -115,6 +115,7 @@ class DshProcessManager(private val project: Project) : Disposable {
 
     /** Lets transactional plugin sync observe the failed boot and perform its own rollback. */
     private var pluginSyncValidationActive = false
+    private var modelSettingsSyncActive = false
 
     /** Guards the one-shot `--no-open` capability probe for external dsh runtimes. */
     private var noOpenProbeDone = false
@@ -187,6 +188,13 @@ class DshProcessManager(private val project: Project) : Disposable {
             stopInternal()
             startInternal()
         }
+    }
+
+    /** One-way provider/model sync; shares the plugin sync queue to serialize profile writes. */
+    fun syncModelSettingsFromMainHomeAsync() {
+        if (disposed.get() || pluginSyncQueued) return
+        pluginSyncQueued = true
+        lifecycle.execute { syncModelSettingsInternal() }
     }
 
     /**
@@ -308,7 +316,7 @@ class DshProcessManager(private val project: Project) : Disposable {
         // the user's main DSH home.
         val dshHome = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
         if (dshHome != null) {
-            DshHomePolicy.seedHome(Paths.get(dshHome), ::addLog)
+            DshHomePolicy.seedHome(Paths.get(dshHome), seedModels = !modelSettingsSyncActive, log = ::addLog)
             // The embedded browser reports Chromium's own language, so a home without a
             // stored preference always opened in English. Seed the system language once,
             // and keep the explicit plugin setting authoritative; a language the user
@@ -817,6 +825,61 @@ class DshProcessManager(private val project: Project) : Disposable {
     // Plugin sync from the main DSH home (always on the lifecycle thread)
     // ---------------------------------------------------------------------------------------------
 
+    private fun syncModelSettingsInternal() {
+        var wasRunning = false
+        var stopped = false
+        var written = false
+        modelSettingsSyncActive = true
+        var patch: Path? = null
+        var previous: ByteArray? = null
+        try {
+            val settings = DshSettingsState.getInstance().current
+            val target = DshHomePolicy.resolveHome(settings.dshHomeOverride, project.basePath)
+            val main = DshHomePolicy.mainHome()
+            if (target == null || sameDirectoryPath(target, main.toString())) {
+                notify(DshBundle.message("dsh.notify.syncPlugins.sameHome"), NotificationType.INFORMATION)
+                return
+            }
+            val source = main.resolve("profiles/web/cordis.patch.yml")
+            if (!Files.isRegularFile(source)) {
+                notify(DshBundle.message("dsh.notify.syncSettings.nothing", main), NotificationType.INFORMATION)
+                return
+            }
+            val home = Paths.get(target)
+            patch = home.resolve("profiles/web/cordis.patch.yml")
+            previous = if (Files.exists(patch)) Files.readAllBytes(patch) else null
+            // Parse and validate before stopping the live service.
+            val current = previous?.toString(Charsets.UTF_8) ?: "[]\n"
+            val merged = DshModelSettingsSync.merge(Files.readString(source), current, overwrite = true)
+            if (merged == current) {
+                notify(DshBundle.message("dsh.notify.syncSettings.upToDate"), NotificationType.INFORMATION)
+                return
+            }
+            wasRunning = currentStatus.state == DshServerState.RUNNING
+            notify(DshBundle.message("dsh.notify.syncSettings.started"), NotificationType.INFORMATION)
+            if (wasRunning) { stopInternal(); stopped = true }
+            Files.createDirectories(patch.parent)
+            written = true
+            Files.writeString(patch, merged)
+            pluginSyncValidationActive = true
+            try { startInternal() } finally { pluginSyncValidationActive = false }
+            check(currentStatus.state == DshServerState.RUNNING) { currentStatus.detail.orEmpty() }
+            if (!wasRunning) stopInternal()
+            notify(DshBundle.message("dsh.notify.syncSettings.done"), NotificationType.INFORMATION)
+        } catch (error: Exception) {
+            patch?.takeIf { written }?.let { file ->
+                runCatching {
+                    if (previous == null) Files.deleteIfExists(file) else Files.write(file, previous)
+                }.onFailure { addLog("Settings sync rollback failed: ${it.message}") }
+            }
+            notify(DshBundle.message("dsh.notify.syncSettings.failed", error.message.orEmpty()), NotificationType.ERROR)
+            if (wasRunning && stopped) startInternal()
+        } finally {
+            modelSettingsSyncActive = false
+            pluginSyncQueued = false
+        }
+    }
+
     private fun syncPluginsInternal() {
         val syncLog = mutableListOf<String>()
         try {
@@ -872,15 +935,7 @@ class DshProcessManager(private val project: Project) : Disposable {
                 }
                 if (currentStatus.state == DshServerState.RUNNING) {
                     DshPluginSync.commit(Paths.get(targetHome)) { line -> syncLog += line; addLog(line) }
-                    val message = if (result.skippedPackages.isEmpty()) {
-                        DshBundle.message("dsh.notify.syncPlugins.done")
-                    } else {
-                        DshBundle.message(
-                            "dsh.notify.syncPlugins.doneWithSkipped",
-                            result.skippedPackages.joinToString(", "),
-                        )
-                    }
-                    notify(message, NotificationType.INFORMATION)
+                    notify(DshBundle.message("dsh.notify.syncPlugins.done"), NotificationType.INFORMATION)
                     if (!wasRunning) stopInternal()
                 } else {
                     val failure = currentStatus.detail.orEmpty()
@@ -1454,6 +1509,10 @@ class DshProcessManager(private val project: Project) : Disposable {
             // The "For IDE" settings-section buttons travel through host.openPath
             // as marker paths and never reach the file system.
             when {
+                path.equals(SYNC_SETTINGS_PATH, ignoreCase = true) -> {
+                    syncModelSettingsFromMainHomeAsync()
+                    return@invokeLater
+                }
                 path.equals(SYNC_PLUGINS_PATH, ignoreCase = true) -> {
                     syncPluginsFromMainHomeAsync()
                     return@invokeLater
@@ -1936,6 +1995,7 @@ class DshProcessManager(private val project: Project) : Disposable {
          * [openPathInIde] and routed to the matching manager entry point instead
          * of the file system.
          */
+        const val SYNC_SETTINGS_PATH = "dsh-ide://sync-settings"
         const val SYNC_PLUGINS_PATH = "dsh-ide://sync-plugins"
         const val SYNC_AGENT_PRESETS_PATH = "dsh-ide://sync-agent-presets"
         const val RESET_PLUGINS_PATH = "dsh-ide://reset-plugins"

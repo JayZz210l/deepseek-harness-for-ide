@@ -52,8 +52,6 @@ object DshPluginSync {
         val error: String? = null,
         /** A complete profile backup is waiting for post-restart commit/rollback. */
         val pendingValidation: Boolean = false,
-        /** Packages whose loader rows were disabled because they import removed DSH APIs. */
-        val skippedPackages: List<String> = emptyList(),
     )
 
     private val isWindows: Boolean =
@@ -81,7 +79,10 @@ object DshPluginSync {
             val source = sourceDir.resolve(name)
             Files.isRegularFile(source) && !sameSyncContent(name, source, targetDir.resolve(name))
         }
-        if (!changed) return Result(changed = false)
+        if (!changed) {
+            DshPluginCompatibility.apply(targetDir, log)
+            return Result(changed = false)
+        }
 
         try {
             // An interrupted previous transaction always prefers its last-known-good profile.
@@ -105,11 +106,10 @@ object DshPluginSync {
                 rollback(targetHome, log)
                 return Result(changed = changed, error = installError)
             }
-            val compatibility = DshPluginCompatibility.apply(targetDir, log)
+            DshPluginCompatibility.apply(targetDir, log)
             return Result(
                 changed = true,
                 pendingValidation = true,
-                skippedPackages = compatibility.packages,
             )
         } catch (error: Exception) {
             rollback(targetHome, log)

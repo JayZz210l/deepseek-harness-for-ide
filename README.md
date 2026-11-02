@@ -19,7 +19,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 <img width="850" alt="Deepseek Harness For IDE 运行截图" src="./docs/images/DSH-FOR-IDE.png" />
 
-> 当前版本：**插件 0.1.24** · **内置 DeepSeek Harness v0.2.1-rc.5** · Windows x64
+> 当前版本：**插件 0.1.25** · **内置 DeepSeek Harness v0.2.1-rc.5** · Windows x64
 
 ---
 
@@ -87,8 +87,10 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 - **界面语言**可在「设置 → DeepSeek Harness → 界面语言」中选择 `自动`（默认，中文系统用中文、
   其他系统用英文）/ `中文` / `英文`；「自动」只决定首次语言，你在 DeepSeek Harness 设置里手动
   选择的语言会被保留并在重启 IDE 后继续生效，选择中文或英文则每次启动都强制生效；
-- **设置 → For IDE** 提供同步 Agent 预设、同步 DSH 插件和恢复默认插件；插件同步经过
-  兼容过滤、启动验证与失败回滚，完成后自动重启项目服务；
+- **设置 → For IDE** 提供同步 Agent 预设、同步设置/模型、同步 DSH 插件和恢复默认插件。
+  新项目从主 DSH 的 `profiles/web/cordis.patch.yml` 补充供应商/模型配置；手动同步设置/模型
+  会单向覆盖对应配置，保留项目语言等其他设置。插件同步会覆盖完整 profile 配置，
+  由 DSH 内核检查兼容性，并经过启动验证与失败回滚，完成后自动重启项目服务；
 - 工具栏可直接安装 npm 包、Git 地址或受限的
   `dsh plugin --profile web add <包名>` 命令，无需全局安装 DSH CLI；
 - 重新设计的 For IDE 页面显示插件版本、内置 DSH 版本和构建日期。
@@ -108,7 +110,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 | 查看 Edit 修改 | 点击 Edit 文件名 → 带语言高亮的 IDE 原生 Diff |
 | 附加编辑器代码 | 选中代码 → 右键 **附加选区到 DeepSeek Harness 对话** |
 | 安装 DSH 插件 | 工具窗口顶部的插件安装按钮 |
-| 同步插件或 Agent 预设 | DSH **设置 → For IDE** |
+| 同步设置/模型、插件或 Agent 预设 | DSH **设置 → For IDE** |
 | 恢复项目默认插件 | 工具栏恢复按钮，或 **设置 → For IDE → 恢复默认** |
 | 查看日志和统计 | 工具栏 **Show Details** |
 | 反馈问题 | 工具栏反馈按钮，或 **设置 → For IDE → 反馈问题** |
@@ -152,7 +154,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 ```powershell
 npx --yes @deepseek-ai/dsh@0.2.1-rc.5 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.24.zip
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.25.zip
 .\gradlew.bat runIde           # 启动带插件的沙箱 IDE
 .\gradlew.bat verifyPlugin     # 验证支持的 IntelliJ Platform 版本
 ```

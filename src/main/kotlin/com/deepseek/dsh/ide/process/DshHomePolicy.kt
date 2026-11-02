@@ -24,7 +24,7 @@ import java.util.Locale
  * directory per project, matching the one-instance-per-project process model.
  *
  * Inheritance is strictly one-way and additive: the main home's
- * `.credentials.yaml` and `settings.yaml` are copied in when they exist and
+ * `.credentials.yaml`, legacy settings and current provider/model settings are copied when they exist and
  * differ, nothing is ever written back, and a source file that disappears does
  * NOT delete the destination — so the plugin can never clear the main config.
  */
@@ -76,14 +76,22 @@ object DshHomePolicy {
      * DSH imports every re-appearing legacy document over the live profile
      * configuration.
      */
-    fun seedHome(home: Path, log: (String) -> Unit) {
+    fun seedHome(home: Path, seedModels: Boolean = true, log: (String) -> Unit) {
         runCatching { Files.createDirectories(home) }.onFailure {
             log("DSH home preparation failed: ${it.message}")
             return
         }
         val main = mainHome()
+        seedHomeFrom(main, home, seedModels, log)
+    }
+
+    internal fun seedHomeFrom(main: Path, home: Path, seedModels: Boolean = true, log: (String) -> Unit) {
         if (isSameDirectory(main, home)) return // override points at the main home: nothing to copy
         copyIfChanged(main.resolve(CREDENTIALS_FILE), home.resolve(CREDENTIALS_FILE), log)
+        runCatching {
+            DshPluginCompatibility.apply(home.resolve("profiles/web"), log)
+            if (seedModels) DshModelSettingsSync.sync(main, home, overwrite = false, log)
+        }.onFailure { log("DSH profile settings seeding failed: ${it.message}") }
         val mainSettings = main.resolve(SETTINGS_FILE)
         if (Files.exists(home.resolve("$SETTINGS_FILE.imported"))) {
             if (Files.exists(mainSettings)) {
@@ -91,7 +99,11 @@ object DshHomePolicy {
             }
             return
         }
-        mergeSettingsMissing(mainSettings, home.resolve(SETTINGS_FILE), log)
+        // Retain pre-migration inheritance, even when an empty profile already exists.
+        // A main home marked as migrated must never resurrect its old settings.
+        if (!Files.exists(main.resolve("$SETTINGS_FILE.imported"))) {
+            mergeSettingsMissing(mainSettings, home.resolve(SETTINGS_FILE), log)
+        }
     }
 
     /** The main user DSH home (`$DSH_HOME` of this process, else `~/.dsh`). */

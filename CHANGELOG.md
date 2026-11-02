@@ -2,6 +2,14 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.25
+
+- 从主 DSH 的 `profiles/web/cordis.patch.yml` 播种项目缺失的供应商、模型与默认模型配置，兼容迁移后的设置格式，并保留旧版 `settings.yaml` 的迁移前继承逻辑。
+- For IDE → 项目同步新增「同步设置/模型」：主目录到项目单向更新对应配置，保留项目语言等其他设置，经过启动验证，失败恢复原配置；同步验证与恢复期间暂停自动模型播种，避免回滚被抵消。
+- 移除静态 API 字符串兼容性过滤，避免 `installSettingsSectionCompat` 等兼容垫片导致整个插件被误禁用；启动和同步时自动清理旧版生成的受管禁用区块，由 DSH 内核与实际启动结果检查兼容性。
+- 明确「同步 DSH 插件」会覆盖完整 profile 配置，并更新中英文提示与使用说明。
+- 内置 DeepSeek Harness 保持 `0.2.1-rc.5`。
+
 ## 0.1.24
 
 - 内置 DeepSeek Harness 从 `0.2.1-rc.2` 升级到官方 [`0.2.1-rc.5`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.5)，获得对话中思考内容展示优化，同步更新运行时版本校验与发布说明。

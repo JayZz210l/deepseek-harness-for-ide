@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.24</version>
+    <version>0.1.25</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -26,6 +26,9 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.25 — 修复迁移后主 DSH 的供应商/模型配置无法播种到项目的问题；For IDE 新增「同步设置/模型」，
+      保留项目其他设置，并提供启动验证与失败回滚。移除按 API 字符串禁用插件的过滤器，自动清理旧受管禁用区块，
+      交由 DSH 内核检查兼容性；明确插件同步会覆盖完整 profile 配置。内置 DSH 仍为 0.2.1-rc.5。</p>
       <p>0.1.24 — 内置 DeepSeek Harness 从 0.2.1-rc.2 升级到官方 0.2.1-rc.5，优化对话中思考内容的展示。
       同步更新运行时版本校验与发布说明；继续支持 IDE 文件打开、原生 Diff、项目隔离与 For IDE 操作。</p>
       <p>0.1.23 — 内置 DeepSeek Harness 从 0.2.0-rc.2 升级到官方 0.2.1-rc.2，

@@ -71,6 +71,7 @@ window.__ModuleLoader__.load({
       feedbackUrl: "__FEEDBACK_URL__",
       githubUrl: "__GITHUB_URL__",
       // host.openPath markers recognized by the JetBrains plugin.
+      syncSettingsPath: "dsh-ide://sync-settings",
       syncPluginsPath: "dsh-ide://sync-plugins",
       syncAgentPresetsPath: "dsh-ide://sync-agent-presets",
       resetPluginsPath: "dsh-ide://reset-plugins",
@@ -273,8 +274,13 @@ window.__ModuleLoader__.load({
                 "同步预设", "outline", function () { runAction(INFO.syncAgentPresetsPath); }
               ),
               ActionCard(
+                "同步设置/模型", "Sync settings / models",
+                "从主 DSH 单向更新供应商、模型和默认模型配置，覆盖对应项目设置，保留项目语言等其他设置；运行中的服务会自动重启。",
+                "同步设置/模型", "outline", function () { runAction(INFO.syncSettingsPath); }
+              ),
+              ActionCard(
                 "同步 DSH 插件", "Sync DSH plugins",
-                "同步主 DSH profile 中兼容的插件；完成后会自动重启当前项目的 DSH 服务。",
+                "同步主 DSH profile 的插件及完整配置（覆盖项目设置）；由 DSH 内核检查兼容性，完成后自动重启服务。",
                 "同步插件", "primary", function () { runAction(INFO.syncPluginsPath); }
               ),
             ),

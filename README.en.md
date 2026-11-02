@@ -19,7 +19,7 @@ editor selections, and project workspaces are integrated with native IDE capabil
 
 <img width="850" alt="Deepseek Harness For IDE running inside the IDE" src="./docs/images/DSH-FOR-IDE.png" />
 
-> Current release: **plugin 0.1.24** · **bundled DeepSeek Harness v0.2.1-rc.5** · Windows x64
+> Current release: **plugin 0.1.25** · **bundled DeepSeek Harness v0.2.1-rc.5** · Windows x64
 
 ---
 
@@ -100,8 +100,11 @@ command is configured in the IDE settings.
   `Auto` only decides the initial language and never overrides a language you picked in the
   DeepSeek Harness settings, so your choice survives IDE restarts; an explicit language is
   enforced on every start.
-- **Settings → For IDE** provides agent-preset sync, DSH-plugin sync, and reset-to-default.
-  Plugin sync includes compatibility filtering, startup validation, rollback, and automatic restart.
+- **Settings → For IDE** provides agent-preset sync, settings/model sync, DSH-plugin sync, and reset-to-default.
+  New projects seed missing provider/model configuration from the main home’s `profiles/web/cordis.patch.yml`.
+  Manual settings/model sync replaces those configurations while keeping other project settings such as language.
+  Plugin sync replaces the complete profile configuration, with runtime compatibility checks, startup validation,
+  rollback, and automatic restart.
 - The toolbar accepts an npm package, Git spec, or restricted
   `dsh plugin --profile web add <package>` command without requiring a global DSH CLI.
 - The redesigned For IDE page displays the plugin version, bundled DSH version, and build date.
@@ -122,7 +125,7 @@ command is configured in the IDE settings.
 | Inspect an Edit | Click its filename → syntax-highlighted native IDE diff |
 | Add editor code to chat | Select code → right-click **Add Selection to DeepSeek Harness Chat** |
 | Install a DSH plugin | Plugin-install action in the tool-window toolbar |
-| Sync plugins or agent presets | DSH **Settings → For IDE** |
+| Sync settings/models, plugins or agent presets | DSH **Settings → For IDE** |
 | Restore project defaults | Toolbar reset action, or **Settings → For IDE → Reset** |
 | View logs and statistics | Toolbar **Show Details** |
 | Report a problem | Toolbar feedback action, or **Settings → For IDE → Report a problem** |
@@ -170,7 +173,7 @@ JDK 21+ is required. Populate the fixed DSH npm cache before the first build:
 
 ```powershell
 npx --yes @deepseek-ai/dsh@0.2.1-rc.5 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.24.zip
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.25.zip
 .\gradlew.bat runIde           # launch a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # verify supported IntelliJ Platform releases
 ```
