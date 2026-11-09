@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.25"
+version = "0.1.26"
 
 repositories {
     mavenCentral()
@@ -102,7 +102,7 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
-val bundledDshVersion = "0.2.1-rc.5"
+val bundledDshVersion = "0.2.2-rc.1"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
 
@@ -180,6 +180,8 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
         // a change re-runs the copy instead of being skipped as UP-TO-DATE.
         inputs.dir(project.file("src/main/resources/dsh/ide-settings"))
         inputs.file(project.file("src/main/resources/icons/dshPluginIcon.png"))
+        inputs.property("pluginVersion", project.version.toString())
+        inputs.property("buildDate", LocalDate.now().toString())
         doLast {
             destinationDir.resolve("dsh-runtime/version.txt").writeText("$runtimeVersion\n")
             // Community plugin managers discover the CLI on PATH instead of
@@ -316,7 +318,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                 val anchor = """
                     \t\t\t\t\t\t\topenFile: async (path, options) => {
                     \t\t\t\t\t\t\t\tconst cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
-                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, path);
+                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, resolveWorkspacePath(session.projections.faceOf("workingDirectory").getSnapshot() ?? void 0, path));
                     \t\t\t\t\t\t\t\tif (options?.line === void 0) ctx.sidebarRight.openResource(url);
                     \t\t\t\t\t\t\t\telse ctx.sidebarRight.openResource(url, { params: { line: options.line } });
                     \t\t\t\t\t\t\t\tawait Promise.resolve();
@@ -326,12 +328,12 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                     \t\t\t\t\t\t\topenFile: async (path, options) => {
                     \t\t\t\t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
                     \t\t\t\t\t\t\t\t\ttry {
-                    \t\t\t\t\t\t\t\t\t\tawait window.__dshIdeOpenPath(path, options?.line);
+                    \t\t\t\t\t\t\t\t\t\tawait window.__dshIdeOpenPath(resolveWorkspacePath(session.projections.faceOf("workingDirectory").getSnapshot() ?? ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd, path), options?.line);
                     \t\t\t\t\t\t\t\t\t\treturn;
                     \t\t\t\t\t\t\t\t\t} catch {}
                     \t\t\t\t\t\t\t\t}
                     \t\t\t\t\t\t\t\tconst cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
-                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, path);
+                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, resolveWorkspacePath(session.projections.faceOf("workingDirectory").getSnapshot() ?? void 0, path));
                     \t\t\t\t\t\t\t\tif (options?.line === void 0) ctx.sidebarRight.openResource(url);
                     \t\t\t\t\t\t\t\telse ctx.sidebarRight.openResource(url, { params: { line: options.line } });
                     \t\t\t\t\t\t\t\tawait Promise.resolve();
@@ -353,20 +355,20 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             if (sidebarFilesClient.isFile) {
                 val source = sidebarFilesClient.readText()
                 val anchor = """
-                    \t\t\t\tonOpen: (path) => {
-                    \t\t\t\t\ttabActions.openResource(fileAddressFor(sessionId, state.root, path));
-                    \t\t\t\t},
+                    \t\t\t\t\tonOpen: (entry) => {
+                    \t\t\t\t\t\tonOpen(fileAddressFor(sessionId, tree.root, entry.path));
+                    \t\t\t\t\t},
                 """.trimIndent().replace("\\t", "\t")
                 val replacement = """
-                    \t\t\t\tonOpen: (path) => {
-                    \t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
-                    \t\t\t\t\t\twindow.__dshIdeOpenPath(path).catch(() => {
-                    \t\t\t\t\t\t\ttabActions.openResource(fileAddressFor(sessionId, state.root, path));
-                    \t\t\t\t\t\t});
-                    \t\t\t\t\t\treturn;
-                    \t\t\t\t\t}
-                    \t\t\t\t\ttabActions.openResource(fileAddressFor(sessionId, state.root, path));
-                    \t\t\t\t},
+                    \t\t\t\t\tonOpen: (entry) => {
+                    \t\t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
+                    \t\t\t\t\t\t\twindow.__dshIdeOpenPath(entry.path).catch(() => {
+                    \t\t\t\t\t\t\t\tonOpen(fileAddressFor(sessionId, tree.root, entry.path));
+                    \t\t\t\t\t\t\t});
+                    \t\t\t\t\t\t\treturn;
+                    \t\t\t\t\t\t}
+                    \t\t\t\t\t\tonOpen(fileAddressFor(sessionId, tree.root, entry.path));
+                    \t\t\t\t\t},
                 """.trimIndent().replace("\\t", "\t")
                 check(source.contains(anchor)) {
                     "bundleDshRuntime: dsh-client-ui-sidebar-files open seam changed"
@@ -375,6 +377,40 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             } else {
                 throw GradleException("bundleDshRuntime: dsh-client-ui-sidebar-files entry is missing")
             }
+
+            // Install the host path bridge before the conversation module mounts,
+            // independently of whether the optional For IDE settings row is enabled.
+            val conversationClient = destinationDir.resolve(
+                "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js",
+            )
+            val conversationSource = conversationClient.readText()
+            check(conversationSource.contains("return globalThis.__DSH_HOST_PATHS__;")) {
+                "bundleDshRuntime: dsh-client-ui-conversation host path contract changed"
+            }
+            conversationClient.writeText(
+                project.file("src/main/resources/dsh/ide-settings/file-drop.js").readText() + "\n" + conversationSource,
+            )
+
+            // Keep DSH's drop validation, reference chips and image uploads. Only
+            // supply JCEF's native paths before the stock attachment intake runs.
+            val attachmentClient = destinationDir.resolve(
+                "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-attachment/lib/client.js",
+            )
+            val dropAnchor = "if (files.length > 0) onAddFiles(files, droppedDirectories(dataTransfer, files));"
+            val dropReplacement = """
+                if (files.length > 0) {
+                  const directories = droppedDirectories(dataTransfer, files);
+                  const prepare = globalThis.__dshIdePrepareFileDrop;
+                  if (typeof prepare === "function") {
+                    prepare(files, directories).then((drop) => onAddFiles(drop.files, drop.directories));
+                  } else onAddFiles(files, directories);
+                }
+            """.trimIndent()
+            val attachmentSource = attachmentClient.readText()
+            check(attachmentSource.contains(dropAnchor)) {
+                "bundleDshRuntime: dsh-client-ui-attachment file-drop seam changed"
+            }
+            attachmentClient.writeText(attachmentSource.replaceFirst(dropAnchor, dropReplacement))
 
             // Client settings package: the "For IDE" section in the web UI settings page.
             // Shipped as a real package under the runtime's node_modules (the client-module
@@ -445,6 +481,8 @@ val bundleNodeRuntime by tasks.registering(Sync::class) {
 // ---------------------------------------------------------------------------------------------
 val generateBuildInfo by tasks.registering {
     val outDir = layout.buildDirectory.dir("generated/dsh-build-info")
+    inputs.property("pluginVersion", project.version.toString())
+    inputs.property("buildDate", LocalDate.now().toString())
     outputs.dir(outDir)
     doLast {
         val dir = outDir.get().asFile

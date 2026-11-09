@@ -114,14 +114,14 @@ internal class NodeExecutableResolver(
         environment.entries.firstOrNull { it.key.equals(name, ignoreCase = isWindows) }?.value
 
     companion object {
-        const val SUPPORTED_NODE_RANGE = "22.19.x or 24+"
+        const val SUPPORTED_NODE_RANGE = "24.9.0+"
         private val NODE_VERSION = Regex("""^\s*v?(\d+)\.(\d+)(?:\.(\d+))?""")
 
         internal fun isSupportedVersion(version: String): Boolean {
             val match = NODE_VERSION.find(version) ?: return false
             val major = match.groupValues[1].toIntOrNull() ?: return false
             val minor = match.groupValues[2].toIntOrNull() ?: return false
-            return (major == 22 && minor >= 19) || major >= 24
+            return major > 24 || (major == 24 && minor >= 9)
         }
 
         private fun probeVersion(executable: File): String? {

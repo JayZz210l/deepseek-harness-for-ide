@@ -2,6 +2,12 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.26
+
+- 内置 DeepSeek Harness 从 `0.2.1-rc.5` 升级到官方最新 release [`0.2.2-rc.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.1)，更新聊天文件打开与文件侧栏接缝，保留 IDE 原生文件打开、行号定位和 Diff。
+- 支持从 IDEA Project 文件树拖入文件自动生成引用，图片添加为原生附件。JCEF 提供真实文件路径，DSH 负责引用卡片、相对路径、图片预览、上传限制与重试；支持多文件及中文、空格路径。
+- 按新版官方运行时的 `engines.node` 将 Node.js 最低版本提高到 `24.9.0`，同步启动检测、边界测试与中英文提示。
+
 ## 0.1.25
 
 - 从主 DSH 的 `profiles/web/cordis.patch.yml` 播种项目缺失的供应商、模型与默认模型配置，兼容迁移后的设置格式，并保留旧版 `settings.yaml` 的迁移前继承逻辑。

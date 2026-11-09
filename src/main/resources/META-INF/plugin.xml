@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.25</version>
+    <version>0.1.26</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -16,16 +16,20 @@
         <li>工作区 = IDE 项目，重开自动回到历史会话（Workspace defaults to the IDE project, reopens on your history）</li>
         <li>文件跳转到 IDE + IDE 原生 Diff（Open files in the IDE, native diff against the VCS baseline）</li>
         <li>编辑器选区附加到当前对话，补充问题后发送（Add selection to the active DSH chat composer）</li>
+        <li>从 IDE 文件树拖入文件自动生成引用，拖入图片添加附件（Drag project files into chat as references; images become attachments）</li>
         <li>每项目隔离数据、单向继承凭据，绝不影响外部 dsh web（Per-project isolated data, one-way credential inheritance）</li>
         <li>一键同步外部安装的 dsh 插件与 Agent 预设到当前项目，支持一键恢复默认插件（One-click sync of dsh plugins &amp; agent presets from ~/.dsh, with reset-to-default）</li>
         <li>启动环境检查、每版本一次的更新公告、内置反馈入口（Startup checks, once-per-version update notice, built-in feedback）</li>
         <li>中英双语界面（Bilingual UI: English / 简体中文）</li>
       </ul>
-      <p>需要 Node.js 22.19.x 或 24+（缺失时插件会引导下载）；当前构建面向 Windows x64。
-      Requires Node.js 22.19.x or 24+ (guided download when missing); currently built for Windows x64.</p>
+      <p>需要 Node.js 24.9.0+（缺失时插件会引导下载）；当前构建面向 Windows x64。
+      Requires Node.js 24.9.0+ (guided download when missing); currently built for Windows x64.</p>
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.26 — 内置 DeepSeek Harness 升级到官方 0.2.2-rc.1，适配新版聊天文件打开与文件侧栏。
+      支持从 IDEA 文件树拖入文件生成引用，图片添加为原生附件，支持多文件、中文和空格路径。
+      Node.js 最低要求同步更新为 24.9.0。</p>
       <p>0.1.25 — 修复迁移后主 DSH 的供应商/模型配置无法播种到项目的问题；For IDE 新增「同步设置/模型」，
       保留项目其他设置，并提供启动验证与失败回滚。移除按 API 字符串禁用插件的过滤器，自动清理旧受管禁用区块，
       交由 DSH 内核检查兼容性；明确插件同步会覆盖完整 profile 配置。内置 DSH 仍为 0.2.1-rc.5。</p>

@@ -7,7 +7,10 @@ import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBuilder
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
+import org.cef.callback.CefDragData
+import org.cef.handler.CefDragHandler
 import org.cef.handler.CefLoadHandlerAdapter
+import java.util.Vector
 import javax.swing.JComponent
 
 /**
@@ -42,6 +45,16 @@ class JcefBrowserPanel(project: Project) {
     init {
         val bridge = project.service<DshBrowserBridge>()
         bridge.attach(browser)
+        browser.jbCefClient.addDragHandler(object : CefDragHandler {
+            override fun onDragEnter(cefBrowser: CefBrowser?, dragData: CefDragData?, mask: Int): Boolean {
+                val paths = Vector<String>()
+                dragData?.getFileNames(paths)
+                bridge.recordDraggedFiles(paths.toList())
+                // Let Chromium deliver the real drop and File objects. DSH owns
+                // reference insertion, validation, image upload and draft state.
+                return false
+            }
+        }, browser.cefBrowser)
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
             override fun onLoadingStateChange(
                 cefBrowser: CefBrowser?,

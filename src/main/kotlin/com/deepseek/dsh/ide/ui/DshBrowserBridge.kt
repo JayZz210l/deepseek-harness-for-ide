@@ -9,8 +9,11 @@ import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
 import com.deepseek.dsh.ide.process.DshProcessManager
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.Base64
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 
 /** Project-scoped handle used by editor actions to address the visible web composer. */
 @Service(Service.Level.PROJECT)
@@ -28,11 +31,17 @@ class DshBrowserBridge(private val project: Project) : Disposable {
     @Volatile
     private var openFilesQuery: JBCefJSQuery? = null
 
+    @Volatile
+    private var droppedFilesQuery: JBCefJSQuery? = null
+    private val draggedPaths = AtomicReference<List<String>>(emptyList())
+
     private val pending = ConcurrentLinkedQueue<String>()
 
     fun attach(value: JBCefBrowser) {
         ideActionQuery?.dispose()
         openFilesQuery?.dispose()
+        droppedFilesQuery?.dispose()
+        draggedPaths.set(emptyList())
         browser = value
         pageLoaded = false
         ideActionQuery = JBCefJSQuery.create(value as JBCefBrowserBase).also { query ->
@@ -60,6 +69,23 @@ class DshBrowserBridge(private val project: Project) : Disposable {
                 JBCefJSQuery.Response(paths)
             }
         }
+        droppedFilesQuery = JBCefJSQuery.create(value as JBCefBrowserBase).also { query ->
+            query.addHandler {
+                // Consume once. A new native drag replaces this snapshot even
+                // when it contains no files, so canceled drags cannot leak paths.
+                val json = draggedPaths.getAndSet(emptyList()).joinToString(
+                    separator = ",", prefix = "[", postfix = "]",
+                ) { path ->
+                    val directory = runCatching { Files.isDirectory(Path.of(path)) }.getOrDefault(false)
+                    "{\"path\":${jsString(path)},\"directory\":$directory}"
+                }
+                JBCefJSQuery.Response(json)
+            }
+        }
+    }
+
+    fun recordDraggedFiles(paths: List<String>) {
+        draggedPaths.set(paths.toList())
     }
 
     fun detach(value: JBCefBrowser) {
@@ -68,6 +94,9 @@ class DshBrowserBridge(private val project: Project) : Disposable {
             ideActionQuery = null
             openFilesQuery?.dispose()
             openFilesQuery = null
+            droppedFilesQuery?.dispose()
+            droppedFilesQuery = null
+            draggedPaths.set(emptyList())
             browser = null
             pageLoaded = false
         }
@@ -75,6 +104,7 @@ class DshBrowserBridge(private val project: Project) : Disposable {
 
     fun markLoading() {
         pageLoaded = false
+        draggedPaths.set(emptyList())
     }
 
     fun markLoaded() {
@@ -102,7 +132,17 @@ class DshBrowserBridge(private val project: Project) : Disposable {
             "function(response) { resolve(response); }",
             "function(code, message) { reject(new Error(message || ('IDE files bridge error ' + code))); }",
         ) ?: "resolve([])"
+        val invokeDroppedFiles = droppedFilesQuery?.inject(
+            "",
+            "function(response) { resolve(response); }",
+            "function(code, message) { reject(new Error(message || ('IDE file drop error ' + code))); }",
+        ) ?: "resolve([])"
         val script = """
+            window.__dshIdeDroppedFiles = function() {
+              return new Promise(function(resolve, reject) {
+                $invokeDroppedFiles
+              });
+            };
             window.__dshIdeOpenPath = function(path, line) {
               const encode = function(value) {
                 const bytes = new TextEncoder().encode(String(value));
@@ -345,6 +385,9 @@ class DshBrowserBridge(private val project: Project) : Disposable {
         ideActionQuery = null
         openFilesQuery?.dispose()
         openFilesQuery = null
+        droppedFilesQuery?.dispose()
+        droppedFilesQuery = null
+        draggedPaths.set(emptyList())
         browser = null
         pending.clear()
     }

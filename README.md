@@ -19,7 +19,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 <img width="850" alt="Deepseek Harness For IDE 运行截图" src="./docs/images/DSH-FOR-IDE.png" />
 
-> 当前版本：**插件 0.1.25** · **内置 DeepSeek Harness v0.2.1-rc.5** · Windows x64
+> 当前版本：**插件 0.1.26** · **内置 DeepSeek Harness v0.2.2-rc.1** · Windows x64
 
 ---
 
@@ -44,7 +44,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 ## 环境要求
 
 - JetBrains IDE **2024.3–2026.2**（`since-build 243` / `until-build 262.*`）；
-- **Node.js 22.19.x 或 24+**；插件内置 DSH，但不默认内置 Node.js；
+- **Node.js 24.9.0+**；插件内置 DSH，但不默认内置 Node.js；
 - DeepSeek API Key：可直接在内嵌界面的 **设置 → 模型** 中配置；已有 `~/.dsh`
   配置时，项目隔离环境会单向继承凭据与基础设置。
 
@@ -58,7 +58,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 - 在 JCEF 工具窗口中运行 DSH Web，支持对话、会话管理、工具审批、目标、计划、
   子智能体、Workflow、插件与 Agent 预设；
-- 固定内置 **DSH v0.2.1-rc.5**，构建时校验实际运行时版本，避免误打包旧缓存；
+- 固定内置 **DSH v0.2.2-rc.1**，构建时校验实际运行时版本，避免误打包旧缓存；
 - 按运行时能力使用 `--no-open`，启动服务时不会额外弹出系统浏览器；
 - 工具栏提供启动、停止、重启、恢复默认插件、安装 DSH 插件、反馈和详情入口。
 
@@ -74,6 +74,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 ### 编辑器与会话联动
 
+- 从 IDEA Project 文件树把文件拖入对话输入框，自动插入文件引用；图片直接添加为可预览附件，沿用 DSH 的上传、移除与失败重试流程；支持多文件及中文、空格路径；
 - 选中代码或当前行后，通过编辑器右键菜单附加到当前可见 DSH 对话，补充问题后再发送；
 - `@` 菜单优先展示当前文件和 IDE 已打开标签，并维护可跨页面重连的编辑器快照；
 - IDE 项目自动注册为 DSH 工作区，重开项目时恢复对应工作区与历史会话。
@@ -109,6 +110,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 | 打开 Read / Write 文件 | 点击工具行文件名 → IDE 编辑器并定位行号 |
 | 查看 Edit 修改 | 点击 Edit 文件名 → 带语言高亮的 IDE 原生 Diff |
 | 附加编辑器代码 | 选中代码 → 右键 **附加选区到 DeepSeek Harness 对话** |
+| 引用文件或添加图片 | 从 Project 文件树拖入对话输入框；文件生成引用，图片添加为附件 |
 | 安装 DSH 插件 | 工具窗口顶部的插件安装按钮 |
 | 同步设置/模型、插件或 Agent 预设 | DSH **设置 → For IDE** |
 | 恢复项目默认插件 | 工具栏恢复按钮，或 **设置 → For IDE → 恢复默认** |
@@ -153,11 +155,17 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 需要 JDK 21+。首次构建前先准备固定版本的 DSH npm 缓存：
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.2.1-rc.5 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.25.zip
+npx --yes @deepseek-ai/dsh@0.2.2-rc.1 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.26.zip
 .\gradlew.bat runIde           # 启动带插件的沙箱 IDE
 .\gradlew.bat verifyPlugin     # 验证支持的 IntelliJ Platform 版本
 ```
+
+本地回归：`node --test scripts/file-drop.test.mjs` 检查拖放路径桥接，构建后运行
+`node scripts/smoke-bundled-runtime.mjs` 检查打包运行时启动和原生文件桥接。
+如需验证引用卡片和图片预览，可先执行 `npm install --prefix .build-input/browser-tests playwright`，
+再运行 `node scripts/smoke-bundled-runtime.mjs --browser`（使用本机 Chrome，模拟 JCEF 路径查询）。
+冒烟测试与重新打包应顺序执行，避免 Windows 原生依赖 DLL 被测试进程占用。
 
 | 构建参数 | 作用 |
 | --- | --- |

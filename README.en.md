@@ -19,7 +19,7 @@ editor selections, and project workspaces are integrated with native IDE capabil
 
 <img width="850" alt="Deepseek Harness For IDE running inside the IDE" src="./docs/images/DSH-FOR-IDE.png" />
 
-> Current release: **plugin 0.1.25** · **bundled DeepSeek Harness v0.2.1-rc.5** · Windows x64
+> Current release: **plugin 0.1.26** · **bundled DeepSeek Harness v0.2.2-rc.1** · Windows x64
 
 ---
 
@@ -45,7 +45,7 @@ opens. Upgrading the plugin retains sessions and settings stored in project-isol
 ## Requirements
 
 - JetBrains IDE **2024.3–2026.2** (`since-build 243` / `until-build 262.*`).
-- **Node.js 22.19.x or 24+**. DSH is bundled; Node.js is not bundled by default.
+- **Node.js 24.9.0+**. DSH is bundled; Node.js is not bundled by default.
 - A DeepSeek API key. Configure it under **Settings → Models** in the embedded UI. Existing
   credentials and base settings can also be inherited one-way from `~/.dsh`.
 
@@ -60,7 +60,7 @@ command is configured in the IDE settings.
 
 - DSH Web runs inside a JCEF tool window with chat, session management, approvals, goals,
   plans, subagents, workflows, plugins, and agent presets.
-- The plugin pins **DSH v0.2.1-rc.5** and verifies the runtime version while building so an
+- The plugin pins **DSH v0.2.2-rc.1** and verifies the runtime version while building so an
   older npm cache cannot be packaged accidentally.
 - `--no-open` is used when supported, preventing DSH startup from opening a separate browser.
 - The toolbar provides start, stop, restart, reset plugins, install DSH plugin, feedback,
@@ -82,6 +82,7 @@ command is configured in the IDE settings.
 
 ### Editor and session integration
 
+- Drag files from IDEA's Project tree into the chat composer to insert file references. Images become previewable attachments using DSH's upload, removal, and retry flow. Multi-file drops and paths containing spaces or Chinese characters are supported.
 - An editor context-menu action appends the selection or current line to the visible DSH
   composer, where the user can add a question before sending.
 - The `@` menu prioritizes the active file and other open IDE tabs using a snapshot that
@@ -172,11 +173,18 @@ The project is under active development. Completed changes and compatibility fix
 JDK 21+ is required. Populate the fixed DSH npm cache before the first build:
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.2.1-rc.5 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.25.zip
+npx --yes @deepseek-ai/dsh@0.2.2-rc.1 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.26.zip
 .\gradlew.bat runIde           # launch a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # verify supported IntelliJ Platform releases
 ```
+
+Run `node --test scripts/file-drop.test.mjs` for drop-bridge tests. After building, run
+`node scripts/smoke-bundled-runtime.mjs` for bundled startup and native file-bridge checks.
+For reference-chip and image-preview checks, install Playwright with
+`npm install --prefix .build-input/browser-tests playwright`, then run
+`node scripts/smoke-bundled-runtime.mjs --browser` (local Chrome, simulated JCEF path query).
+Run smoke tests after packaging finishes so Windows native DLLs are not locked during the build.
 
 | Property | Effect |
 | --- | --- |
