@@ -19,7 +19,7 @@ editor selections, and project workspaces are integrated with native IDE capabil
 
 <img width="850" alt="Deepseek Harness For IDE running inside the IDE" src="./docs/images/DSH-FOR-IDE.png" />
 
-> Current release: **plugin 0.1.26** · **bundled DeepSeek Harness v0.2.2-rc.1** · Windows x64
+> Current release: **plugin 0.1.27** · **bundled DeepSeek Harness v0.2.2-rc.2** · Windows x64
 
 ---
 
@@ -60,7 +60,7 @@ command is configured in the IDE settings.
 
 - DSH Web runs inside a JCEF tool window with chat, session management, approvals, goals,
   plans, subagents, workflows, plugins, and agent presets.
-- The plugin pins **DSH v0.2.2-rc.1** and verifies the runtime version while building so an
+- The plugin pins **DSH v0.2.2-rc.2** and verifies the runtime version while building so an
   older npm cache cannot be packaged accidentally.
 - `--no-open` is used when supported, preventing DSH startup from opening a separate browser.
 - The toolbar provides start, stop, restart, reset plugins, install DSH plugin, feedback,
@@ -173,8 +173,8 @@ The project is under active development. Completed changes and compatibility fix
 JDK 21+ is required. Populate the fixed DSH npm cache before the first build:
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.2.2-rc.1 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.26.zip
+npx --yes @deepseek-ai/dsh@0.2.2-rc.2 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.27.zip
 .\gradlew.bat runIde           # launch a sandbox IDE with the plugin
 .\gradlew.bat verifyPlugin     # verify supported IntelliJ Platform releases
 ```

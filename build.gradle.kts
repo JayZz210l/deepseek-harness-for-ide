@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.deepseek.dsh"
-version = "0.1.26"
+version = "0.1.27"
 
 repositories {
     mavenCentral()
@@ -102,7 +102,7 @@ tasks {
 //   2. the newest npx cache checkout with node_modules/@deepseek-ai/dsh/package.json
 // Disable bundling with -PskipDshRuntime=true (e.g. for a lightweight Marketplace build).
 // ---------------------------------------------------------------------------------------------
-val bundledDshVersion = "0.2.2-rc.1"
+val bundledDshVersion = "0.2.2-rc.2"
 val dshRuntimeSourcePath: String? = findProperty("dshRuntimePath") as String?
 val skipDshRuntime: Boolean = (findProperty("skipDshRuntime") as String?)?.toBoolean() ?: false
 
@@ -250,26 +250,14 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             // Edit rows already own the authoritative applied hunk payload.
             // Hand it to JCEF's native bridge instead of asking the IDE to
             // reconstruct a baseline after the file has changed on disk.
-            // DSH 0.1.7 wraps the handler factory in react.useMemo (the row also
-            // gained a `settledWithCue` guard), so the seam is the whole memo
-            // expression instead of the bare arrow function.
+            // DSH 0.2.2-rc.2 minifies client modules. Match the complete memo
+            // expression, retaining the official settledWithCue guard.
             val toolClient = destinationDir.resolve(
                 "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-tool/lib/client.js",
             )
             if (toolClient.isFile) {
                 var source = toolClient.readText()
-                val anchor = """
-                    \t\t\tconst openFile = (0, react.useMemo)(() => filePath !== void 0 && onOpenFile !== void 0 && !settledWithCue ? (event) => {
-                    \t\t\t\tevent.stopPropagation();
-                    \t\t\t\tif (filePathLine === void 0) onOpenFile(filePath);
-                    \t\t\t\telse onOpenFile(filePath, { line: filePathLine });
-                    \t\t\t} : void 0, [
-                    \t\t\t\tfilePath,
-                    \t\t\t\tfilePathLine,
-                    \t\t\t\tonOpenFile,
-                    \t\t\t\tsettledWithCue
-                    \t\t\t]);
-                """.trimIndent().replace("\\t", "\t")
+                val anchor = "const openFile=(0,react.useMemo)(()=>filePath!==void 0&&onOpenFile!==void 0&&!settledWithCue?event=>{event.stopPropagation();if(filePathLine===void 0)onOpenFile(filePath);else onOpenFile(filePath,{line:filePathLine})}:void 0,[filePath,filePathLine,onOpenFile,settledWithCue]);"
                 val replacement = """
                     \t\t\twindow.__dshIdeToolDiffBridgeAvailable = true;
                     \t\t\twindow.__dshIdeToolFileBridgeAvailable = true;
@@ -294,6 +282,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                     \t\t\t} : void 0, [
                     \t\t\t\tfilePath,
                     \t\t\t\tfilePathLine,
+                    \t\t\t\tdiffBody,
                     \t\t\t\tonOpenFile,
                     \t\t\t\tsettledWithCue
                     \t\t\t]);
@@ -315,15 +304,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             )
             if (chatClient.isFile) {
                 val source = chatClient.readText()
-                val anchor = """
-                    \t\t\t\t\t\t\topenFile: async (path, options) => {
-                    \t\t\t\t\t\t\t\tconst cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
-                    \t\t\t\t\t\t\t\tconst url = fileAddressFor(sessionId, cwd, resolveWorkspacePath(session.projections.faceOf("workingDirectory").getSnapshot() ?? void 0, path));
-                    \t\t\t\t\t\t\t\tif (options?.line === void 0) ctx.sidebarRight.openResource(url);
-                    \t\t\t\t\t\t\t\telse ctx.sidebarRight.openResource(url, { params: { line: options.line } });
-                    \t\t\t\t\t\t\t\tawait Promise.resolve();
-                    \t\t\t\t\t\t\t},
-                """.trimIndent().replace("\\t", "\t")
+                val anchor = "openFile:async(path,options)=>{const cwd=ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;const url=fileAddressFor(sessionId,cwd,resolveWorkspacePath(session.projections.faceOf(`workingDirectory`).getSnapshot()??void 0,path));if(options?.line===void 0)ctx.sidebarRight.openResource(url);else ctx.sidebarRight.openResource(url,{params:{line:options.line}});await Promise.resolve()},"
                 val replacement = """
                     \t\t\t\t\t\t\topenFile: async (path, options) => {
                     \t\t\t\t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
@@ -354,11 +335,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             )
             if (sidebarFilesClient.isFile) {
                 val source = sidebarFilesClient.readText()
-                val anchor = """
-                    \t\t\t\t\tonOpen: (entry) => {
-                    \t\t\t\t\t\tonOpen(fileAddressFor(sessionId, tree.root, entry.path));
-                    \t\t\t\t\t},
-                """.trimIndent().replace("\\t", "\t")
+                val anchor = "onOpen:entry=>{onOpen(fileAddressFor(sessionId,tree.root,entry.path))},"
                 val replacement = """
                     \t\t\t\t\tonOpen: (entry) => {
                     \t\t\t\t\t\tif (typeof window.__dshIdeOpenPath === "function") {
@@ -384,7 +361,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
                 "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js",
             )
             val conversationSource = conversationClient.readText()
-            check(conversationSource.contains("return globalThis.__DSH_HOST_PATHS__;")) {
+            check(conversationSource.contains("function hostPathBridge(){return globalThis.__DSH_HOST_PATHS__}")) {
                 "bundleDshRuntime: dsh-client-ui-conversation host path contract changed"
             }
             conversationClient.writeText(
@@ -396,7 +373,7 @@ val bundleDshRuntime by tasks.registering(Sync::class) {
             val attachmentClient = destinationDir.resolve(
                 "dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-attachment/lib/client.js",
             )
-            val dropAnchor = "if (files.length > 0) onAddFiles(files, droppedDirectories(dataTransfer, files));"
+            val dropAnchor = "if(files.length>0)onAddFiles(files,droppedDirectories(dataTransfer,files))"
             val dropReplacement = """
                 if (files.length > 0) {
                   const directories = droppedDirectories(dataTransfer, files);

@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.deepseek.dsh.ide</id>
     <name>Deepseek Harness For IDE</name>
-    <version>0.1.26</version>
+    <version>0.1.27</version>
     <icon path="/icons/dshPluginIcon.png"/>
     <vendor url="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness community</vendor>
 
@@ -27,6 +27,8 @@
     ]]></description>
 
     <change-notes><![CDATA[
+      <p>0.1.27 — 内置 DeepSeek Harness 从 0.2.2-rc.1 升级到官方 0.2.2-rc.2，
+      适配新版压缩前端的文件打开与拖放接缝；继续支持 IDE 文件打开、原生 Diff、文件拖放与 For IDE 操作。</p>
       <p>0.1.26 — 内置 DeepSeek Harness 升级到官方 0.2.2-rc.1，适配新版聊天文件打开与文件侧栏。
       支持从 IDEA 文件树拖入文件生成引用，图片添加为原生附件，支持多文件、中文和空格路径。
       Node.js 最低要求同步更新为 24.9.0。</p>
