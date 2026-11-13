@@ -28,7 +28,7 @@
 
     <change-notes><![CDATA[
       <p>0.1.28 — 内置 DeepSeek Harness 从 0.2.2-rc.2 升级到官方 0.2.2-rc.3；
-      继续支持 IDE 文件打开、原生 Diff、文件拖放引用与图片附件。</p>
+      替换已弃用的编辑器打开与语言资源加载 API，继续支持 IDE 文件打开、原生 Diff、文件拖放引用与图片附件。</p>
       <p>0.1.27 — 内置 DeepSeek Harness 从 0.2.2-rc.1 升级到官方 0.2.2-rc.2，
       适配新版压缩前端的文件打开与拖放接缝；继续支持 IDE 文件打开、原生 Diff、文件拖放与 For IDE 操作。</p>
       <p>0.1.26 — 内置 DeepSeek Harness 升级到官方 0.2.2-rc.1，适配新版聊天文件打开与文件侧栏。

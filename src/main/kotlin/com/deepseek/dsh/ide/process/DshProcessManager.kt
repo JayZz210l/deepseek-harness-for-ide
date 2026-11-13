@@ -1623,14 +1623,14 @@ class DshProcessManager(private val project: Project) : Disposable {
     }
 
     private fun openFileInEditor(virtualFile: com.intellij.openapi.vfs.VirtualFile, line: Int? = null) {
-        if (line != null && line > 0) {
-            FileEditorManager.getInstance(project).openTextEditor(
-                OpenFileDescriptor(project, virtualFile, line - 1, 0),
-                true,
-            )
+        // Delegate navigation to the platform across supported IDE versions instead
+        // of synchronously opening editors through deprecated FileEditorManager APIs.
+        val descriptor = if (line != null && line > 0) {
+            OpenFileDescriptor(project, virtualFile, line - 1, 0)
         } else {
-            FileEditorManager.getInstance(project).openFile(virtualFile, true)
+            OpenFileDescriptor(project, virtualFile)
         }
+        descriptor.navigate(true)
     }
 
     private fun pathKey(path: String): String =

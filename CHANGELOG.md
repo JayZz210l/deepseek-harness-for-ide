@@ -4,6 +4,8 @@ Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.
 
 ## 0.1.28
 
+- 替换已弃用的编辑器打开和语言资源加载 API，保留文件行号定位与中英文界面，改善新版 IntelliJ 平台兼容性。
+
 - 内置 DeepSeek Harness 从 `0.2.2-rc.2` 升级到官方最新版本 [`0.2.2-rc.3`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.3)。
 - 同步更新中英文版本信息与更新提示，继续支持 IDE 文件打开、原生 Diff、文件拖放引用与图片附件。
 
