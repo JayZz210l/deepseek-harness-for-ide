@@ -2,6 +2,11 @@
 
 Deepseek Harness For IDE 版本历史。版本号自更名后重新起算（0.1.1 起）。
 
+## 0.1.28
+
+- 内置 DeepSeek Harness 从 `0.2.2-rc.2` 升级到官方最新版本 [`0.2.2-rc.3`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.3)。
+- 同步更新中英文版本信息与更新提示，继续支持 IDE 文件打开、原生 Diff、文件拖放引用与图片附件。
+
 ## 0.1.27
 
 - 内置 DeepSeek Harness 从 `0.2.2-rc.1` 升级到官方最新 release [`0.2.2-rc.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.2)，同步更新运行时版本校验与中英文发布说明。

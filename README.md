@@ -19,7 +19,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 <img width="850" alt="Deepseek Harness For IDE 运行截图" src="./docs/images/DSH-FOR-IDE.png" />
 
-> 当前版本：**插件 0.1.27** · **内置 DeepSeek Harness v0.2.2-rc.2** · Windows x64
+> 当前版本：**插件 0.1.28** · **内置 DeepSeek Harness v0.2.2-rc.3** · Windows x64
 
 ---
 
@@ -58,7 +58,7 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 
 - 在 JCEF 工具窗口中运行 DSH Web，支持对话、会话管理、工具审批、目标、计划、
   子智能体、Workflow、插件与 Agent 预设；
-- 固定内置 **DSH v0.2.2-rc.2**，构建时校验实际运行时版本，避免误打包旧缓存；
+- 固定内置 **DSH v0.2.2-rc.3**，构建时校验实际运行时版本，避免误打包旧缓存；
 - 按运行时能力使用 `--no-open`，启动服务时不会额外弹出系统浏览器；
 - 工具栏提供启动、停止、重启、恢复默认插件、安装 DSH 插件、反馈和详情入口。
 
@@ -155,8 +155,8 @@ Deepseek Harness For IDE 将 DeepSeek Harness 的对话、会话、工具审批�
 需要 JDK 21+。首次构建前先准备固定版本的 DSH npm 缓存：
 
 ```powershell
-npx --yes @deepseek-ai/dsh@0.2.2-rc.2 --version
-.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.27.zip
+npx --yes @deepseek-ai/dsh@0.2.2-rc.3 --version
+.\gradlew.bat buildPlugin      # build/distributions/deepseek-harness-jetbrains-0.1.28.zip
 .\gradlew.bat runIde           # 启动带插件的沙箱 IDE
 .\gradlew.bat verifyPlugin     # 验证支持的 IntelliJ Platform 版本
 ```
